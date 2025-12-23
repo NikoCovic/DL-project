@@ -205,8 +205,6 @@ class Hessian:
             eigenvector:ParameterVector = ParameterVector.random_like([p for p in self.model.parameters() if p.requires_grad])
             eigenvector.mult(1/eigenvector.norm(), inplace=True)
 
-            #print(preconditioner.P_dict)
-
             if method == "power_iteration":
                 eigenvalue:float = None
 
@@ -239,7 +237,6 @@ class Hessian:
                             break
                         else:
                             eigenvalue = temp_eigenvalue
-                    #print(eigenvalue)
 
                 eigenvalues.append(eigenvalue)
                 eigenvectors.append(eigenvector)

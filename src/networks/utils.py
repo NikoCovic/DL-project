@@ -1,7 +1,4 @@
-import torch
 import torch.nn as nn
-
-from torch.optim import Muon
 
 
 def get_activation(activation:str):
