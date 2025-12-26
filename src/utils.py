@@ -5,7 +5,7 @@ from torch.nn.parameter import Parameter
 
 class ParameterVector():
     def __init__(self, params:Iterable[Parameter]):
-        self.params = [p.clone() for p in params]
+        self.params = [p for p in params]
         self.dim = sum([p.numel() for p in self.params])
     
     def dot(self, v:"ParameterVector") -> float:
@@ -17,7 +17,7 @@ class ParameterVector():
     def sum(self, v:"ParameterVector", alpha:float=1, inplace:bool=False) -> "ParameterVector":
         v_sum = self if inplace else self.copy()
         for i, p in enumerate(v.params):
-            v_sum.params[i] += p*alpha
+            v_sum.params[i].data.add_(p*alpha)
         return v_sum
     
     def copy(self) -> "ParameterVector":
@@ -25,23 +25,20 @@ class ParameterVector():
         return ParameterVector(params_copy)
 
     def norm(self) -> float:
-        sum_sq = 0
-        for p in self.params:
-            sum_sq += torch.sum(p**2)
-        return torch.sqrt(sum_sq)
+        return self.dot(self)**0.5
     
     def mult(self, alpha:float, inplace:bool=False) ->"ParameterVector":
         v = self if inplace else self.copy()
         for i, p in enumerate(v.params):
-            v.params[i] *= alpha
+            v.params[i].mul_(alpha)
         return v
     
     def orthonormal(self, vectors:Iterable["ParameterVector"], inplace:bool=False) -> "ParameterVector":
         v_orthonormal = self if inplace else self.copy()
         for v in vectors:
             v_orthonormal.sum(v, alpha=-v_orthonormal.dot(v), inplace=True)
-        return v_orthonormal.mult(1/v_orthonormal.norm())
+        return v_orthonormal.mult(1/v_orthonormal.norm(), inplace=True)
     
     def random_like(params:Iterable[Parameter]):
-        params_rand = [Parameter(torch.rand_like(p), requires_grad=p.requires_grad) for p in params]
+        params_rand = [Parameter(torch.rand_like(p), requires_grad=False) for p in params]
         return ParameterVector(params_rand)
