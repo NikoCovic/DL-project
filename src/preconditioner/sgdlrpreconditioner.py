@@ -2,7 +2,7 @@ from .preconditioner import Preconditioner
 from torch.optim import SGD
 from typing import Iterable
 from torch.nn.parameter import Parameter
-from src.utils import ParameterVector
+from src.utils import *
 
 
 class SGDLRPreconditioner(Preconditioner):
@@ -21,8 +21,8 @@ class SGDLRPreconditioner(Preconditioner):
         P.p = p*self.p
         return P
 
-    def dot(self, v:ParameterVector, inplace:bool=False) -> ParameterVector:
-        v = v if inplace else v.copy()
-        for p_v in v.params:
+    def dot(self, v:Iterable[Parameter], inplace:bool=False) -> Iterable[Parameter]:
+        v = v if inplace else params_copy(v)
+        for p_v in v:
             p_v.data = p_v * (self.lr**self.p)
         return v

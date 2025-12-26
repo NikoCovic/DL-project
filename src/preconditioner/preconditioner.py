@@ -1,4 +1,5 @@
-from src.utils import ParameterVector
+from typing import Iterable
+from torch.nn import Parameter
 
 
 class Preconditioner:
@@ -8,5 +9,5 @@ class Preconditioner:
     def prepare(self):
         pass
 
-    def dot(self, v:ParameterVector, inplace:bool=False) -> ParameterVector:
+    def dot(self, v:Iterable[Parameter], inplace:bool=False) -> Iterable[Parameter]:
         pass

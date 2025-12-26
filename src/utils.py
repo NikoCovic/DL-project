@@ -42,3 +42,46 @@ class ParameterVector():
     def random_like(params:Iterable[Parameter]):
         params_rand = [Parameter(torch.rand_like(p), requires_grad=False) for p in params]
         return ParameterVector(params_rand)
+    
+
+def params_copy(params:Iterable[Parameter]):
+    return [p.clone() for p in params]
+
+
+def params_dot_product(params1:Iterable[Parameter], params2:Iterable[Parameter]):
+    return sum([torch.sum(p1 * p2) for p1, p2 in zip(params1, params2)])
+
+
+def params_norm(params:Iterable[Parameter]):
+    return torch.sqrt(params_dot_product(params, params))
+
+
+def params_scale(params:Iterable[Parameter], scalar:float, inplace:bool=False):
+    params = params if inplace else params_copy(params)
+    for p in params:
+        p.data.mul_(scalar)
+    return params
+
+
+def params_sum(params1:Iterable[Parameter], params2:Iterable[Parameter], alpha:float=1, inplace:bool=False):
+    params_sum = params1 if inplace else params_copy(params1)
+    for p1, p2 in zip(params_sum, params2):
+        p1.data.add_(p2*alpha)
+    return params_sum
+
+
+def params_normalize(params:Iterable[Parameter], inplace:bool=False):
+    params = params if inplace else params_copy(params)
+    norm = params_norm(params)
+    return params_scale(params, 1/(norm+1e-8), inplace=True)
+
+
+def params_orthonormalize(params:Iterable[Parameter], other_params:Iterable[Iterable[Parameter]], inplace:bool=False):
+    params = params if inplace else params_copy(params)
+    for v in other_params:
+        params = params_sum(params, v, alpha=-params_dot_product(params, v), inplace=True)
+    return params_normalize(params, inplace=True)
+
+
+def params_random_like(params:Iterable[Parameter]):
+    return [Parameter(torch.rand_like(p), requires_grad=False) for p in params]

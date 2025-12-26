@@ -19,11 +19,11 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # How many samples are used per class and how many classes are used
-    n_samples_per_class = 250
-    n_classes = 4
+    n_samples_per_class = 100
+    n_classes = 2
 
     # Create an MLP
-    model = MLP(input_shape=(3, 32, 32), output_dim=n_classes)
+    model = MLP(input_shape=(3, 32, 32), n_hidden=1, width=24, output_dim=n_classes)
 
     # The learning rate
     lr = 2/100
@@ -83,7 +83,7 @@ def main():
     hessian = Hessian(model, next(iter(data_loader)), loss_fn, device=device)
 
     # Number of epochs to train for
-    n_epochs = 10
+    n_epochs = 1000
 
     # List of all eigenvalues
     eigenvalues = []

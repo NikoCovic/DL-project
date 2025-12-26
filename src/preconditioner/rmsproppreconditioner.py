@@ -3,7 +3,7 @@ from torch.optim import RMSprop
 from typing import Iterable
 from torch.nn.parameter import Parameter
 import torch
-from src.utils import ParameterVector
+from src.utils import *
 
 
 class RMSpropPreconditioner(Preconditioner):
@@ -38,8 +38,8 @@ class RMSpropPreconditioner(Preconditioner):
             P.P_dict[param]["P_pow_p"] = torch.pow(self.P_dict[param]["P_pow_p"], P.p)
         return P
 
-    def dot(self, v:ParameterVector, inplace:bool=False) -> ParameterVector:
-        v = v if inplace else v.copy()
-        for p, p_v in zip(self.P_dict, v.params):
+    def dot(self, v:Iterable[Parameter], inplace:bool=False) -> Iterable[Parameter]:
+        v = v if inplace else params_copy(v)
+        for p, p_v in zip(self.P_dict, v):
             p_v.data = self.P_dict[p]["P_pow_p"] * p_v
         return v

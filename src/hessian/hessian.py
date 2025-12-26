@@ -1,4 +1,4 @@
-from src.utils import ParameterVector
+from src.utils import *
 from src.preconditioner import Preconditioner
 import torch.nn as nn
 import numpy as np
@@ -6,6 +6,7 @@ from torch.nn.parameter import Parameter
 import torch
 from scipy.sparse.linalg import LinearOperator, eigsh
 from pyhessian import hessian
+from typing import Iterable
 
 
 class Hessian:
@@ -41,31 +42,38 @@ class Hessian:
             preconditioner.prepare()
             preconditioner_inv_sqrt = preconditioner.pow(0.5)
 
-        eigenvectors:list[ParameterVector] = []
+        #eigenvectors:list[ParameterVector] = []
+        eigenvectors:list[Iterable[Parameter]] = []
         eigenvalues:list[float] = []
 
         # Compute loss
         loss = self.loss_fn(self.targets.to(self.device), self.model(self.inputs.to(self.device)))
         loss.backward(create_graph=True)
         # Fetch the parameters which require a gradient
-        params = ParameterVector([p for p in self.model.parameters() if p.requires_grad])
-        grad = ParameterVector([0. if p.grad is None else p.grad+0. for p in params.params])
+        #params = ParameterVector([p for p in self.model.parameters() if p.requires_grad])
+        #grad = ParameterVector([0. if p.grad is None else p.grad+0. for p in params.params])
+        params = [p for p in self.model.parameters() if p.requires_grad]
+        grad = [0. if p.grad is None else p.grad+0. for p in params]
 
         while len(eigenvectors) < top_n:   
 
             # Initialize the first eigenvector to a random normalized vector
-            eigenvector:ParameterVector = ParameterVector.random_like([p for p in self.model.parameters() if p.requires_grad])
-            eigenvector.mult(1/eigenvector.norm(), inplace=True)
+            #eigenvector:ParameterVector = ParameterVector.random_like([p for p in self.model.parameters() if p.requires_grad])
+            #eigenvector.mult(1/eigenvector.norm(), inplace=True)
+            eigenvector:Iterable[Parameter] = params_random_like(params)
+            params_normalize(eigenvector, inplace=True)
 
             if method == "power_iteration":
                 eigenvalue:float = None
 
                 for i in range(max_iter):
                     # Orthonormalize the eigenvector w.r.t the already computed eigenvectors
-                    eigenvector.orthonormal(eigenvectors, inplace=True)
+                    #eigenvector.orthonormal(eigenvectors, inplace=True)
+                    params_orthonormalize(eigenvector, eigenvectors, inplace=True)
 
                     # Compute P^{-1/2}HP^{-1/2}v or just Hv
-                    v = eigenvector.copy()
+                    #v = eigenvector.copy()
+                    v = params_copy(eigenvector)
                     if preconditioner is not None:
                         # P^{-1/2}v
                         v = preconditioner_inv_sqrt.dot(v, inplace=True)
@@ -76,11 +84,13 @@ class Hessian:
                         v = preconditioner_inv_sqrt.dot(v, inplace=True)
 
                     # Compute the eigenvalue
-                    temp_eigenvalue = v.dot(eigenvector).cpu().item()
+                    #temp_eigenvalue = v.dot(eigenvector).cpu().item()
+                    temp_eigenvalue = params_dot_product(v, eigenvector).cpu().item()
 
                     # Compute the eigenvector by normalizing
-                    norm = v.norm().cpu().item()
-                    eigenvector = v.mult(1/norm, inplace=True)
+                    #norm = v.norm().cpu().item()
+                    #eigenvector = v.mult(1/norm, inplace=True)
+                    eigenvector = params_normalize(v, inplace=True)
 
                     if eigenvalue is None:
                         eigenvalue = temp_eigenvalue
@@ -148,8 +158,14 @@ class Hessian:
         #grad = ParameterVector(grad)
         
         # Compute the Hessian-vector product by differentiating again
-        Hv = torch.autograd.grad(grad.dot(v), params.params, retain_graph=True)
-        v = v if inplace else v.copy()
-        for p_v, p_Hv in zip(v.params, Hv):
+        #Hv = torch.autograd.grad(grad.dot(v), params.params, retain_graph=True)
+        #v = v if inplace else v.copy()
+        #for p_v, p_Hv in zip(v.params, Hv):
+        #    p_v.data = p_Hv.data
+        #return v
+    
+        Hv = torch.autograd.grad(params_dot_product(grad, v), params, retain_graph=True)
+        v = v if inplace else params_copy(v)
+        for p_v, p_Hv in zip(v, Hv):
             p_v.data = p_Hv.data
         return v

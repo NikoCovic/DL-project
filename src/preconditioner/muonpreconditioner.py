@@ -3,14 +3,14 @@ from torch.optim import Muon
 from .preconditioner import Preconditioner
 from typing import Iterable
 from torch.nn.parameter import Parameter
-from src.utils import ParameterVector
+from src.utils import *
 
 
 class MuonPreconditioner(Preconditioner):
     def __init__(self, muon_optim:Muon, params:Iterable[Parameter], p:float=1, power_method:str="svd"):
         #super().__init__()
         self.optim = muon_optim
-        self.params = params
+        self.params = list(params)
         self.power_method = power_method
         self.p = p
         self.P_dict = None
@@ -56,9 +56,9 @@ class MuonPreconditioner(Preconditioner):
             P_pow_p.P_dict[param]["P_pow_p"] = U @ torch.diag(S.pow(self.p)) @ U.T
         return P_pow_p
 
-    def dot(self, v:ParameterVector, inplace:bool=False) -> ParameterVector:
-        v = v if inplace else v.copy()
-        for p, p_v in zip(self.P_dict.keys(), v.params):
+    def dot(self, v:Iterable[Parameter], inplace:bool=False) -> Iterable[Parameter]:
+        v = v if inplace else params_copy(v)
+        for p, p_v in zip(self.P_dict.keys(), v):
             #print("before", p_v)
             p_v.data = self.P_dict[p]["P_pow_p"] @ p_v
             #print("dot", p_v)
