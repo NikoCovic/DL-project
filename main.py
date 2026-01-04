@@ -1,5 +1,5 @@
 from src.networks import MLP
-from torch.optim import SGD
+from torch.optim import SGD, RMSprop, Muon, Adam
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import numpy as np
@@ -9,36 +9,53 @@ from torchvision.transforms import transforms
 import torch
 import torch.nn as nn
 from src.hessian import Hessian
+from src import *
+import pyhessian as hes
 
 
 def main():
 
-    torch.manual_seed(42)
+    torch.manual_seed(41)
 
     # Use CUDA if possible
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # How many samples are used per class and how many classes are used
-    n_samples_per_class = 100
-    n_classes = 2
+    n_samples_per_class = 250
+    n_classes = 4
 
     # Create an MLP
-    model = MLP(input_shape=(3, 32, 32), n_hidden=1, width=24, output_dim=n_classes)
+    model = MLP(input_shape=(3, 32, 32), n_hidden=1, width=24, output_dim=n_classes, bias=True)
+
+    momentum = 0.95
 
     # The learning rate
-    lr = 2/100
+    lr_sgd = 2/200
+    lr_rmsprop = 2e-5
+    lr_muon = 2e-3
+    lr_adam = 2e-3
+    lr = lr_adam
 
     # The sharpness threshold SGD should oscillate around
-    thresh_sgd = 2/lr
+    thresh_sgd = 2/lr_sgd
+    thresh_sgd_lr = 2
+    thresh_rmsprop = 2#2/lr_rmsprop
+    thresh_muon = (2 + 2*momentum)#/lr_muon
+    thresh_adam = 2#(2 + 2*momentum)
+    thresh = thresh_adam
 
-    # SGD optimiuer
-    optim = SGD(model.parameters(), lr=lr)
+    # Optimizers
+    #optim = SGD(model.parameters(), lr=lr)
+    #optim = RMSprop(model.parameters(), lr=lr)
+    #optim = Adam(model.parameters(), lr=lr)
+    optim = Muon(model.parameters(), lr=lr, nesterov=False, weight_decay=0, momentum=momentum)
 
     # If a different optimizer is used, specify the preconditioner here
     # NOTE: This currently does not work as intended
-    #preconditioner_muon = MuonPreconditioner(optim, list(model.parameters()))
-    #preconditioner_rmsprop = RMSpropPreconditioner(optim, list(model.parameters()))
-    #preconditioner_sgd = SGDLRPreconditioner(optim, list(model.parameters()), lr=lr)
+    preconditioner = None
+    #preconditioner = MuonPreconditioner(optim, model)
+    #preconditioner = RMSpropPreconditioner(optim, model)
+    #preconditioner = SGDLRPreconditioner(optim, list(model.parameters()), lr=lr)
 
     # Create the CIFAR-10 dataset and extract n_classes
     cifar10 = CIFAR10("./data/", download=True, transform=transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.49, 0.48, 0.45), (0.24703233, 0.24348505, 0.26158768))]))
@@ -80,16 +97,36 @@ def main():
     # This class works pretty much exactly the same as pyhessian.hessian 
     # (different inputs, but functions are the same and do the same thing)
     # The difference is that this class can also work with a Preconditioner
-    hessian = Hessian(model, next(iter(data_loader)), loss_fn, device=device)
+    hessian_computer = Hessian(model, next(iter(data_loader)), loss_fn, device=device)
+    #hessian_computer = hes.hessian(model, loss_fn, dataloader=data_loader, cuda=False)
 
     # Number of epochs to train for
-    n_epochs = 1000
+    n_epochs = 500
+
+    # Number of epochs to warm up for
+    n_warmup = 5
 
     # List of all eigenvalues
     eigenvalues = []
 
+    # Tracking the loss
+    losses = []
+
+    pbar = tqdm(range(n_epochs), desc="Loss: - | Sharpness: -")
+
     # Train the model
-    for epoch in tqdm(range(n_epochs)):
+    for epoch in pbar:
+
+        #print(f"Epoch: {epoch+1}")
+
+        losses_b = []
+
+        if preconditioner is not None:
+            preconditioner.update_params()
+        hessian_computer.update_params()
+
+        #if epoch >= n_warmup:
+        #    eigvals, eigvecs = hessian_computer.eigenvalues(top_n=1, maxIter=200, tol=1e-6)
 
         for i, (inputs, targets) in enumerate(data_loader):
             optim.zero_grad()
@@ -99,18 +136,35 @@ def main():
 
             loss.backward()
 
+            losses_b.append(loss.item())
+
             optim.step()
 
-        # This part compues the eigenvalues (by default top_n=1, specifying just the sharpness)
-        eigvecs, eigvals = hessian.eigenvalues(preconditioner=None, method="power_iteration")
+        if epoch >= n_warmup:
+            #preconditioner.prepare()
+            # This part compues the eigenvalues (by default top_n=1, specifying just the sharpness)
+            if preconditioner is not None:
+                preconditioner.update()
+            eigvecs, eigvals = hessian_computer.eigenvalues(preconditioner=preconditioner, method="power_iteration", top_n=1)
+            #eigvals, eigvecs = hessian_computer.eigenvalues(top_n=1, maxIter=200, tol=1e-6)
 
-        # Store the eigenvalues
-        eigenvalues.append(eigvals)
+            # Store the eigenvalues
+            eigenvalues.append(eigvals)
+
+            # Store the loss
+            losses.append(losses_b)
+
+            pbar.set_description(f"Loss: {loss.item():.2e} | Sharpness: {eigvals[0]:.2e}")
+        else: 
+            pbar.set_description(f"Loss: {loss.item():.2e} | Sharpness: -")
+            pass
 
     
     # Plot the eigenvalues throughout training
-    plt.plot(eigenvalues)
-    plt.hlines([thresh_sgd], xmin=0, xmax=n_epochs, colors="black", linestyles="--")
+    fig, ax = plt.subplots(1, 2)
+    ax[0].plot(losses)
+    ax[1].plot(eigenvalues)
+    ax[1].hlines([thresh], xmin=0, xmax=n_epochs, colors="black", linestyles="--")
     plt.show()
 
         

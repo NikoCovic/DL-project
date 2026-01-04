@@ -153,3 +153,39 @@ Next, we have to be able to compute $D_t^{-1/2}$. Note that taking $D_t^p$ ($D$ 
 ## Note on using multiple optimizers
 
 Since often not all parameters are rectangular, Muon is usually combined with other optimizers, like Adam or AdamW. This changes the preconditioner $D_t$, however it is still block-diagonal. We can simply add the preconditioner of Adam as a new block-diagonal matrix in $D_t$ and again compute it independently for its respective parameters.
+
+## Muon's approximation
+
+Ideal preconditioner (per-layer): $P = (MM^T)^{-1/2}$
+
+Then, we get $O = PM = (MM^T)^{-1/2}M = (U\Sigma V^T V \Sigma U^T)^{-1/2}U\Sigma V^T = (U\Sigma^2 U^T)^{-1/2}U\Sigma V^T = U \Sigma^{-1} U^TU\Sigma V^T = UV^T$
+
+But, the true Muon constructs an approximation of $O$, specifically $O \approx \hat{O} = U D V^T$, where $D$ is a diagonal matrix with diagonal entries close to 1 (e.g. $[0.3, 1.7]$ or so). So, what if we replace $\Sigma$ with a diagonal matrix $S$ such that $S^{-1}\Sigma = D$. I.e., since $W_{t+1} = W_t - \eta \hat{O}_t$, we gotta have $US^{-1}\Sigma V^T = \hat{O_t} = (W_t - W_{t+1})/\eta$. Then the exact preconditioner (of the approximation) becomes $U S^{-1} U^T$, since $(U S^{-1} U^T)M = U S^{-1} U^T U\Sigma V^T = US^{-1}\Sigma V^T = U D V^T = \hat{O}$.
+
+So how do we find $S$? Suppose we have the true update matrix $\hat{O}$. We can simply find $U$ and $\Sigma$ via SVD of $M = U\Sigma V^T$. We then need to find $D$. Since we have $U$ and $V$, $D$ can be found by doing $D = U^T\hat{O} V$. What remains is to simply solve $S^{-1}\Sigma = D$. All of these are diagonal matrices, so each of these amounts to a very simple linear equation. I.e. $S^{-1} = D\Sigma^{-1}$, so $S = \Sigma D^{-1}$
+
+## 
+$$
+\rho(M) = U(aS + bS^3 + cS^5)V^T = UDV^T
+$$
+
+
+$$
+\begin{aligned}
+
+&\rho(\rho(M)) = a \rho(M) + b(\rho(M)\rho(M)^T)\rho(M) + c(\rho(M)\rho(M)^T)^2\rho(M)\\
+
+&= a UDV^T + b(UDV^TVDU^T)UDV^T + c(UDV^TVDU^T)^2UDV^T\\
+
+&= aUDV^T + b(UD^2U^T)UDV^T + c(UD^2U^T)^2UDV^T\\
+
+&= aUDV^T + bUD^3V^T + cUD^5V^T\\
+
+&= U(aD + bD^3 + cD^5)V^T \\
+
+&= U \tilde{D} V^T
+
+
+
+\end{aligned}
+$$

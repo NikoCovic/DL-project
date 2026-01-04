@@ -45,7 +45,7 @@ class ParameterVector():
     
 
 def params_copy(params:Iterable[Parameter]):
-    return [p.clone() for p in params]
+    return [Parameter(p.clone(), requires_grad=p.requires_grad) for p in params]
 
 
 def params_dot_product(params1:Iterable[Parameter], params2:Iterable[Parameter]):
