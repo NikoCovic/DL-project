@@ -27,33 +27,33 @@ def main():
     # Create an MLP
     model = MLP(input_shape=(3, 32, 32), n_hidden=1, width=24, output_dim=n_classes, bias=True)
 
-    momentum = 0.95
+    momentum = 0.99
 
     # The learning rate
     lr_sgd = 2/200
     lr_rmsprop = 2e-5
     lr_muon = 2e-3
     lr_adam = 2e-3
-    lr = lr_adam
+    #lr = lr_muon
 
     # The sharpness threshold SGD should oscillate around
     thresh_sgd = 2/lr_sgd
     thresh_sgd_lr = 2
-    thresh_rmsprop = 2#2/lr_rmsprop
-    thresh_muon = (2 + 2*momentum)#/lr_muon
-    thresh_adam = 2#(2 + 2*momentum)
-    thresh = thresh_adam
+    thresh_rmsprop = 2/lr_rmsprop
+    thresh_muon = (2 + 2*momentum)/lr_muon
+    thresh_adam = (2 + 2*momentum)/lr_adam
+    thresh = thresh_muon
 
     # Optimizers
-    #optim = SGD(model.parameters(), lr=lr)
-    #optim = RMSprop(model.parameters(), lr=lr)
-    #optim = Adam(model.parameters(), lr=lr)
-    optim = Muon(model.parameters(), lr=lr, nesterov=False, weight_decay=0, momentum=momentum)
+    #optim = SGD(model.parameters(), lr=lr_sgd)
+    #optim = RMSprop(model.parameters(), lr=lr_rmsprop)
+    #optim = Adam(model.parameters(), lr=lr_adam)
+    optim = Muon(model.parameters(), lr=lr_muon, nesterov=False, weight_decay=0, momentum=momentum)
 
     # If a different optimizer is used, specify the preconditioner here
     # NOTE: This currently does not work as intended
-    preconditioner = None
-    #preconditioner = MuonPreconditioner(optim, model)
+    #preconditioner = None
+    preconditioner = MuonPreconditioner(optim, model)
     #preconditioner = RMSpropPreconditioner(optim, model)
     #preconditioner = SGDLRPreconditioner(optim, list(model.parameters()), lr=lr)
 
@@ -108,6 +108,8 @@ def main():
 
     # List of all eigenvalues
     eigenvalues = []
+    eigenvalues2 = []
+    singularvalues = []
 
     # Tracking the loss
     losses = []
@@ -145,26 +147,31 @@ def main():
             # This part compues the eigenvalues (by default top_n=1, specifying just the sharpness)
             if preconditioner is not None:
                 preconditioner.update()
-            eigvecs, eigvals = hessian_computer.eigenvalues(preconditioner=preconditioner, method="power_iteration", top_n=1)
-            #eigvals, eigvecs = hessian_computer.eigenvalues(top_n=1, maxIter=200, tol=1e-6)
+            es = hessian_computer.update_eigenvalues(preconditioner=preconditioner)
+            s = hessian_computer.update_spectral_norm(preconditioner=preconditioner)
+            e = abs(es[0])
 
-            # Store the eigenvalues
-            eigenvalues.append(eigvals)
+            # Store the eigenvalues and singular values
+            eigenvalues.append(e)
+            singularvalues.append(s)
 
             # Store the loss
             losses.append(losses_b)
 
-            pbar.set_description(f"Loss: {loss.item():.2e} | Sharpness: {eigvals[0]:.2e}")
+            pbar.set_description(f"Loss: {loss.item():.2e} | Updt. Sharpness: {e:.2e} | Updt. Spectral Norm: {s:.2e}")
         else: 
-            pbar.set_description(f"Loss: {loss.item():.2e} | Sharpness: -")
+            pbar.set_description(f"Loss: {loss.item():.2e} | Updt. Sharpness: - | Updt. Spectral Norm: -")
             pass
 
     
     # Plot the eigenvalues throughout training
     fig, ax = plt.subplots(1, 2)
     ax[0].plot(losses)
-    ax[1].plot(eigenvalues)
+    ax[1].plot(eigenvalues, label="Update Sharpness")
+    #ax[1].plot(singularvalues, label="Spectral Norm")
+    ax[1].plot(singularvalues, label="Update Spectral Norm")
     ax[1].hlines([thresh], xmin=0, xmax=n_epochs, colors="black", linestyles="--")
+    ax[1].legend()
     plt.show()
 
         

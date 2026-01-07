@@ -31,7 +31,7 @@ class RMSpropPreconditioner(Preconditioner):
 
         #self.P_dict[p] = {}
         # Store P^p = diag(1/(M + e))^p
-        self.P_dict[p]["P_pow_p"] = torch.pow(lr/(torch.sqrt(M) + 1e-8), self.p)
+        self.P_dict[p]["P_pow_p"] = torch.pow(1/(torch.sqrt(M) + 1e-8), self.p)
 
     def copy(self) -> "RMSpropPreconditioner":
         P_copy = RMSpropPreconditioner(self.optim, self.params, p=self.p)

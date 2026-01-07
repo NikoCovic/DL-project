@@ -85,3 +85,83 @@ def params_orthonormalize(params:Iterable[Parameter], other_params:Iterable[Iter
 
 def params_random_like(params:Iterable[Parameter]):
     return [Parameter(torch.rand_like(p), requires_grad=False) for p in params]
+
+
+class TorchLinearOperator():
+    def __init__(self, mv, params):
+        self.mv = mv
+        self.params = params
+
+    def dot(self, v:Iterable[Parameter], inplace=False) -> Iterable[Parameter]:
+        v = v if inplace else params_copy(v)
+        return self.mv(v)
+
+
+def power_iteration_eigenvalues(operator:TorchLinearOperator, top_n:int=1, max_iter:int=200, tol:float=1e-8):
+    eigenvectors = []
+    eigenvalues = []
+
+    while len(eigenvectors) < top_n:
+        # Initalize eigenvector
+        v = params_random_like(operator.params)
+        # Initialize eigenvalue to None
+        eigval = None
+
+        for _ in range(max_iter):
+            # Orthonormalize v w.r.t the currently computed eigenvectors
+            v = params_orthonormalize(v, eigenvectors, inplace=True)
+            
+            # Compute Mv
+            Mv = operator.dot(v, inplace=False)
+
+            # Compute the eigenvalue
+            temp_eigval = params_dot_product(v, Mv).cpu().item()
+
+            # Compute the eigenvector by normalizing Mv
+            v = params_normalize(Mv, inplace=True)
+
+            # Check if the tolerance threshold has been reached, if so, break the loop
+            if eigval is None:
+                eigval = temp_eigval
+            else:
+                if abs(eigval - temp_eigval) / (abs(eigval) + 1e-6) < tol:
+                    break
+                else:
+                    eigval = temp_eigval
+
+        eigenvalues.append(eigval)
+        eigenvectors.append(v)
+
+    return eigenvalues, eigenvectors
+
+
+def spectral_norm(operator:TorchLinearOperator, operator_transformed:TorchLinearOperator, max_iter:int=200, tol:float=1e-8):
+    v = params_random_like(operator.params)
+    v = params_normalize(v, inplace=True)
+
+    s = None
+    
+    for _ in range(max_iter):
+        # Compute u_k = Av_{k-1}
+        u = operator.dot(v, inplace=False)
+        # Compute u_k = u_k / ||u_k||_2
+        u = params_normalize(u, inplace=True)
+
+        # Compute v_k = A^Tu_k
+        v = operator_transformed.dot(u, inplace=True)
+        # Compute v_k = v_k / ||v_k||_2
+        v = params_normalize(v, inplace=True)
+
+        # Compute s = u_k^T A v_k and check if it beats the tolerance threshold
+        s_temp = params_dot_product(u, operator.dot(v))#params_norm(operator.dot(v)).cpu().item()
+        if s is None:
+            s = s_temp
+        else:
+            if abs(s - s_temp) / (abs(s) + 1e-6) < tol:
+                break
+            else:
+                s = s_temp
+
+    return s
+        
+

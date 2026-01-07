@@ -6,6 +6,7 @@ from torch.nn.parameter import Parameter
 import torch
 from scipy.sparse.linalg import LinearOperator, eigsh
 from typing import Iterable
+from pyhessian import hessian
 
 
 class Hessian:
@@ -56,8 +57,8 @@ class Hessian:
             preconditioner_sqrt = preconditioner.pow(0.5)
 
         #eigenvectors:list[ParameterVector] = []
-        eigenvectors:list[Iterable[Parameter]] = []
-        eigenvalues:list[float] = []
+        #eigenvectors:list[Iterable[Parameter]] = []
+        #eigenvalues:list[float] = []
 
         # Compute loss
         loss = self.loss_fn(self.targets.to(self.device), self.model(self.inputs.to(self.device)))
@@ -71,6 +72,7 @@ class Hessian:
         #grad = [0. if p.grad is None else p.grad+0. for p in params]
 
         if method == "power_iteration":
+            """
             # Compute the eigenvectors
             while len(eigenvectors) < top_n:   
 
@@ -119,6 +121,15 @@ class Hessian:
 
                 eigenvalues.append(eigenvalue)
                 eigenvectors.append(eigenvector)
+                """
+            # Construct operator for P^{1/2}HP^{1/2}v
+            def mv(v):
+                Psqv = params_copy(v) if preconditioner is None else preconditioner_sqrt.dot(v)
+                HPsqv = self.hessian_vector_product(Psqv, grad, params)
+                PsqHPsqv = HPsqv if preconditioner is None else preconditioner_sqrt.dot(HPsqv)
+                return PsqHPsqv
+            operator = TorchLinearOperator(mv, params)
+            eigenvalues, eigenvectors = power_iteration_eigenvalues(operator, max_iter=max_iter, top_n=top_n, tol=tol)
         elif method == "LA":
             # Initialize a random eigenvector and normalize
             eigenvector:Iterable[Parameter] = params_random_like(params)
@@ -168,28 +179,111 @@ class Hessian:
                 p_m.data = p_old.data
 
         return eigenvectors, eigenvalues
+    
+    def spectral_norm(self, max_iter:int=200, tol=1e-8):
+        # Set the parameters to the current Hessian parameters
+        model_params = [nn.Parameter(p.clone()) for p in self.model.parameters() if p.requires_grad]
+        for p_m, p in zip([p for p in self.model.parameters() if p.requires_grad], self.params):
+            if p.requires_grad:
+                p_m.data = p.data
+        params = [p for p in self.model.parameters() if p.requires_grad]
 
-    def hessian_vector_product(self, v:ParameterVector, grad:ParameterVector, params:ParameterVector, inplace:bool=True) -> ParameterVector:
+        # Compute the loss with and gradient
+        loss = self.loss_fn(self.targets.to(self.device), self.model(self.inputs.to(self.device)))
+        grad = torch.autograd.grad(loss, params, create_graph=True)
+
+        # Construct the operators
+        # Regular operator is Hv and so is the transformed one since H^T = H
+        def mv(v:Iterable[Parameter]):
+            Hv = self.hessian_vector_product(v, grad, inplace=True)
+            return Hv
+        operator = TorchLinearOperator(mv=mv, params=params)
+
+        # Compute the spectral norm
+        s = spectral_norm(operator, operator, max_iter=max_iter, tol=tol)
+        
+        # Reset the model parameters
+        for p_m, p_old in zip([p for p in self.model.parameters() if p.requires_grad], model_params):
+            if p_m.requires_grad:
+                p_m.data = p_old.data
+
+        return s
+    
+    def update_spectral_norm(self, preconditioner:Preconditioner=None, max_iter:int=200, tol:float=1e-8):
+        # Set the parameters to the current Hessian parameters
+        model_params = [nn.Parameter(p.clone()) for p in self.model.parameters() if p.requires_grad]
+        for p_m, p in zip([p for p in self.model.parameters() if p.requires_grad], self.params):
+            if p.requires_grad:
+                p_m.data = p.data
+        params = [p for p in self.model.parameters() if p.requires_grad]
+
+        # Compute the loss with and gradient
+        loss = self.loss_fn(self.targets.to(self.device), self.model(self.inputs.to(self.device)))
+        grad = torch.autograd.grad(loss, params, create_graph=True)
+
+        # Construct the operators
+        # Regular operator is (I - \eta PH)v = v - \eta PHv
+        def mv(v:Iterable[Parameter]):
+            Hv = self.hessian_vector_product(v, grad, params, inplace=False)
+            PHv = Hv if preconditioner is None else preconditioner.dot(Hv, inplace=True)
+            return params_sum(v, PHv, alpha=-1)
+        operator = TorchLinearOperator(mv=mv, params=params)
+        # Trasformed oprator (I - \eta PH)^Tv = (I - \eta HP)v
+        def mv_transformed(v:Iterable[Parameter]):
+            Pv = params_copy(v) if preconditioner is None else preconditioner.dot(v, inplace=False)
+            HPv = self.hessian_vector_product(Pv, grad, params)
+            return params_sum(v, HPv, alpha=-1)
+        operator_transformed = TorchLinearOperator(mv=mv_transformed, params=params)
+        # Compute the spectral norm
+        s = spectral_norm(operator, operator_transformed, max_iter=max_iter, tol=tol)
+        
+        # Reset the model parameters
+        for p_m, p_old in zip([p for p in self.model.parameters() if p.requires_grad], model_params):
+            if p_m.requires_grad:
+                p_m.data = p_old.data
+
+        return s
+    
+    def update_eigenvalues(self, top_n:int=1, preconditioner:Preconditioner=None, max_iter:int=200, tol:float=1e-8):
+        # Set the parameters to the current Hessian parameters
+        model_params = [nn.Parameter(p.clone()) for p in self.model.parameters() if p.requires_grad]
+        for p_m, p in zip([p for p in self.model.parameters() if p.requires_grad], self.params):
+            if p.requires_grad:
+                p_m.data = p.data
+        params = [p for p in self.model.parameters() if p.requires_grad]
+
+        # Compute the loss with and gradient
+        loss = self.loss_fn(self.targets.to(self.device), self.model(self.inputs.to(self.device)))
+        grad = torch.autograd.grad(loss, params, create_graph=True)
+
+        # Since (I - PH) is non-symmetric, it's easier to compute the eigenvalues of (P^{1/2}HP^{1/2})
+        # This can be done since \lambda(PH) = \lambda(P^{1/2}HP^{1/2})
+        # Additionally, (I - PH)v_i = v_i - PHv_i = (1 - \lambda(PH))v_i, where v_i is an eigenvector
+        # So, \lambda_i(I - PH) = 1 - \lambda_i(PH) = 1 - \lambda_i(P^{1/2}HP^{1/2})
+        
+        _, eigvals = self.eigenvalues(max_iter=max_iter, tol=tol, preconditioner=preconditioner, top_n=top_n, method="power_iteration")
+        eigvals = [1 - e for e in eigvals]
+        
+        # Reset the model parameters
+        for p_m, p_old in zip([p for p in self.model.parameters() if p.requires_grad], model_params):
+            if p_m.requires_grad:
+                p_m.data = p_old.data
+
+        return eigvals
+
+    def hessian_vector_product(self, v:Iterable[Parameter], grad:Iterable[Parameter], params:Iterable[Parameter], inplace:bool=True) -> Iterable[Parameter]:
         # Reset model gradients
         self.model.zero_grad()
 
-        # Compute loss
-        #loss = self.loss_fn(self.targets.to(self.device), self.model(self.inputs.to(self.device)))
+        # Compute the loss and gradient if it is not provided
+        if grad is None:
+            # Compute loss
+            loss = self.loss_fn(self.targets.to(self.device), self.model(self.inputs.to(self.device)))
 
-        # Fetch the parameters which require a gradient
-        #params = [p for p in self.model.parameters() if p.requires_grad]
-
-        # Compute gradient
-        #grad = torch.autograd.grad(loss, params.params, create_graph=True)
-        #grad = ParameterVector(grad)
-        
-        # Compute the Hessian-vector product by differentiating again
-        #Hv = torch.autograd.grad(grad.dot(v), params.params, retain_graph=True)
-        #v = v if inplace else v.copy()
-        #for p_v, p_Hv in zip(v.params, Hv):
-        #    p_v.data = p_Hv.data
-        #return v
+            # Compute gradient
+            grad = torch.autograd.grad(loss, params.params, create_graph=True)
     
+        # Compute Hv by differentiating again
         Hv = torch.autograd.grad(params_dot_product(grad, v), params, retain_graph=True)
         v = v if inplace else params_copy(v)
         for p_v, p_Hv in zip(v, Hv):

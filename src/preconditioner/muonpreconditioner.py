@@ -99,7 +99,7 @@ class MuonPreconditioner(Preconditioner):
             # Precompute the power
             # P = (MM^T)^{-1/2} = (USV^TVSU^T)^{-1/2} = (US^2U^T)^{-1/2} = US^{-1}U^T
             # P^p = US^{-p}U^T
-            self.P_dict[p]["P_pow_p"] = U @ torch.diag((lr*(S.pow(-1))).pow(self.p)) @ U.T
+            self.P_dict[p]["P_pow_p"] = U @ torch.diag(((S.pow(-1))).pow(self.p)) @ U.T
 
     def pow(self, p:float, inplace:bool=False) -> "MuonPreconditioner":
         # Compute the power
@@ -109,7 +109,7 @@ class MuonPreconditioner(Preconditioner):
             U = P_pow_p.P_dict[param]["U"]
             S = P_pow_p.P_dict[param]["S"]
             lr = P_pow_p.P_dict[param]["lr"]
-            P_pow_p.P_dict[param]["P_pow_p"] = U @ torch.diag((lr*(S.pow(-1))).pow(P_pow_p.p)) @ U.T
+            P_pow_p.P_dict[param]["P_pow_p"] = U @ torch.diag(((S.pow(-1))).pow(P_pow_p.p)) @ U.T
         return P_pow_p
 
     def dot(self, v:Iterable[Parameter], inplace:bool=False) -> Iterable[Parameter]:
