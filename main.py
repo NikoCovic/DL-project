@@ -11,6 +11,7 @@ import torch.nn as nn
 from src.hessian import Hessian
 from src import *
 import pyhessian as hes
+import time
 
 
 def main():
@@ -172,7 +173,8 @@ def main():
     ax[1].plot(singularvalues, label="Update Spectral Norm")
     ax[1].hlines([thresh], xmin=0, xmax=n_epochs, colors="black", linestyles="--")
     ax[1].legend()
-    plt.show()
+    plt.savefig(f"experiments/experiment-{time.time_ns()}.png")
+    #plt.show()
 
         
 if __name__ == "__main__":
