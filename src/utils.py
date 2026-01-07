@@ -153,7 +153,7 @@ def spectral_norm(operator:TorchLinearOperator, operator_transformed:TorchLinear
         v = params_normalize(v, inplace=True)
 
         # Compute s = u_k^T A v_k and check if it beats the tolerance threshold
-        s_temp = params_dot_product(u, operator.dot(v))#params_norm(operator.dot(v)).cpu().item()
+        s_temp = params_dot_product(u, operator.dot(v)).cpu().item()#params_norm(operator.dot(v)).cpu().item()
         if s is None:
             s = s_temp
         else:

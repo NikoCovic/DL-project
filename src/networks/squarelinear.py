@@ -8,5 +8,6 @@ class SquareLinear(nn.Module):
         self.layer = nn.Linear(in_features, out_features, bias=False)
 
     def forward(self, x):
-        x = torch.cat((x, torch.ones((len(x), 1))), 1)
-        return self.layer(x)
+        device = x.device
+        x = torch.cat((x, torch.ones((len(x), 1)).to(device)), 1)
+        return self.layer.to(device)(x)
