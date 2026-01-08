@@ -43,19 +43,19 @@ def main():
     thresh_rmsprop = 2/lr_rmsprop
     thresh_muon = (2 + 2*momentum)/lr_muon
     thresh_adam = (2 + 2*momentum)/lr_adam
-    thresh = thresh_muon
+    thresh = thresh_rmsprop
 
     # Optimizers
     #optim = SGD(model.parameters(), lr=lr_sgd)
-    #optim = RMSprop(model.parameters(), lr=lr_rmsprop)
+    optim = RMSprop(model.parameters(), lr=lr_rmsprop)
     #optim = Adam(model.parameters(), lr=lr_adam)
-    optim = Muon(model.parameters(), lr=lr_muon, nesterov=False, weight_decay=0, momentum=momentum)
+    #optim = Muon(model.parameters(), lr=lr_muon, nesterov=False, weight_decay=0, momentum=momentum)
 
     # If a different optimizer is used, specify the preconditioner here
     # NOTE: This currently does not work as intended
     #preconditioner = None
-    preconditioner = MuonPreconditioner(optim, model)
-    #preconditioner = RMSpropPreconditioner(optim, model)
+    #preconditioner = MuonPreconditioner(optim, model)
+    preconditioner = RMSpropPreconditioner(optim, model)
     #preconditioner = SGDLRPreconditioner(optim, list(model.parameters()), lr=lr)
 
     # Create the CIFAR-10 dataset and extract n_classes
@@ -111,6 +111,7 @@ def main():
     eigenvalues = []
     eigenvalues2 = []
     singularvalues = []
+    commutativity_measures = []
 
     # Tracking the loss
     losses = []
@@ -148,30 +149,35 @@ def main():
             # This part compues the eigenvalues (by default top_n=1, specifying just the sharpness)
             if preconditioner is not None:
                 preconditioner.update()
-            es = hessian_computer.update_eigenvalues(preconditioner=preconditioner)
-            s = hessian_computer.update_spectral_norm(preconditioner=preconditioner)
-            e = abs(es[0])
+            #es = hessian_computer.update_eigenvalues(preconditioner=preconditioner)
+            #s = hessian_computer.update_spectral_norm(preconditioner=preconditioner)
+            #_, es = hessian_computer.eigenvalues()
+            c = hessian_computer.commutativity_measure(preconditioner)
+            #e = abs(es[0])
 
             # Store the eigenvalues and singular values
-            eigenvalues.append(e)
-            singularvalues.append(s)
+            #eigenvalues.append(e)
+            #singularvalues.append(s)
+            commutativity_measures.append(c)
 
             # Store the loss
             losses.append(losses_b)
 
-            pbar.set_description(f"Loss: {loss.item():.2e} | Updt. Sharpness: {e:.2e} | Updt. Spectral Norm: {s:.2e}")
+            pbar.set_description(f"Loss: {loss.item():.2e} | Commutativity: {c:.2e}")
         else: 
-            pbar.set_description(f"Loss: {loss.item():.2e} | Updt. Sharpness: - | Updt. Spectral Norm: -")
+            pbar.set_description(f"Loss: {loss.item():.2e} | Commutativity: -")
             pass
 
     
     # Plot the eigenvalues throughout training
     fig, ax = plt.subplots(1, 2)
     ax[0].plot(losses)
-    ax[1].plot(eigenvalues, label="Update Sharpness")
+    #ax[1].plot(eigenvalues, label="Sharpness")
+    #ax[1].plot(eigenvalues, label="Update Sharpness")
     #ax[1].plot(singularvalues, label="Spectral Norm")
-    ax[1].plot(singularvalues, label="Update Spectral Norm")
-    ax[1].hlines([thresh], xmin=0, xmax=n_epochs, colors="black", linestyles="--")
+    #ax[1].plot(singularvalues, label="Update Spectral Norm")
+    ax[1].plot(commutativity_measures, label="Commutativity")
+    #ax[1].hlines([thresh], xmin=0, xmax=n_epochs, colors="black", linestyles="--")
     ax[1].legend()
     plt.savefig(f"experiments/experiment-{time.time_ns()}.png")
     #plt.show()

@@ -26,6 +26,51 @@ class Hessian:
     def update_params(self):
         self.params = [nn.Parameter(p.clone(), requires_grad=True) for p in self.model.parameters() if p.requires_grad]
 
+    def commutativity_measure(self, preconditioner:Preconditioner, **algo_kwargs):
+        # Store the current parameters
+        model_params = [nn.Parameter(p.clone()) for p in self.model.parameters() if p.requires_grad]
+        for p_m, p in zip([p for p in self.model.parameters() if p.requires_grad], self.params):
+            if p.requires_grad:
+                p_m.data = p.data
+
+        # Compute loss
+        loss = self.loss_fn(self.targets.to(self.device), self.model(self.inputs.to(self.device)))
+        # Compute the gradients w.r.t. the loss
+        params = [p for p in self.model.parameters() if p.requires_grad]
+        grad = torch.autograd.grad(loss, params, create_graph=True)
+
+        def mv(v):
+            # Compute PHv - HPv
+            Hv = self.hessian_vector_product(v, grad, params, inplace=False)
+            PHv = preconditioner.dot(Hv, inplace=True)
+
+            Pv = preconditioner.dot(v, inplace=True)
+            HPv = self.hessian_vector_product(Pv, grad, params, inplace=True)
+
+            return params_sum(PHv, HPv, alpha=-1)
+        
+        def mv_transformed(v):
+            # Compute (PH - HP)^Tv = HPv - PHv
+            Hv = self.hessian_vector_product(v, grad, params, inplace=False)
+            PHv = preconditioner.dot(Hv, inplace=True)
+
+            Pv = preconditioner.dot(v, inplace=True)
+            HPv = self.hessian_vector_product(Pv, grad, params, inplace=True)
+
+            return params_sum(HPv, PHv, alpha=-1)
+        
+        operator = TorchLinearOperator(mv, params)
+        operator_transformed = TorchLinearOperator(mv_transformed, params)
+
+        s = spectral_norm(operator, operator_transformed, **algo_kwargs)
+
+        # Reset the model parameters
+        for p_m, p_old in zip([p for p in self.model.parameters() if p.requires_grad], model_params):
+            if p_m.requires_grad:
+                p_m.data = p_old.data
+
+        return s
+
     def eigenvalues(self, max_iter:int=200, tol:float=1e-12, top_n:int=1, preconditioner:Preconditioner=None, method:str="power_iteration"):
         """
         Computes the `top_n` eigenvalues of the Hessian or Preconditioned Hessian

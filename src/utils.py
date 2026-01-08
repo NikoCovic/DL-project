@@ -163,5 +163,44 @@ def spectral_norm(operator:TorchLinearOperator, operator_transformed:TorchLinear
                 s = s_temp
 
     return s
+
+def params_flatten(params:Iterable[Parameter]):
+    v = torch.empty()
+    for p in params:
+        v = torch.cat((v, torch.flatten(p)))
+    return v
+
+        
+class ParameterBasis():
+    def __init__(self, M:torch.tensor):
+        self.M = M
+
+    def from_params(params:Iterable[Iterable[Parameter]]):
+        M = torch.empty()
+        for p in params:
+            v = params_flatten(p)
+            M = torch.cat((M, v), dim=1)
+        return ParameterBasis(M)
+
+    def dot(self, v:Iterable[Parameter], inplace:bool=False):
+        v = v if inplace else params_copy(v)
+        v = params_flatten(v)
+        return torch.dot(self.M, v)
+    
+    def transpose(self, inplace:bool=False):
+        if inplace:
+            self.M = self.M.T
+            return self
+        else:
+            return ParameterBasis(self.M.T)
+    
+    def orthonormalize(self, inplace:bool=False):
+        U, _, Vh = torch.linalg.svd(self.M)
+        M = U @ Vh
+        if inplace:
+            self.M = M
+            return self
+        else:
+            return ParameterBasis(M)
         
 
