@@ -24,7 +24,7 @@ class Hessian:
         self.device = device
 
     def update_params(self):
-        self.params = [nn.Parameter(p.clone(), requires_grad=True) for p in self.model.parameters() if p.requires_grad]
+        self.params = [nn.Parameter(p.detach().clone(), requires_grad=True).to(p.device) for p in self.model.parameters() if p.requires_grad]
 
     def commutativity_measure(self, preconditioner:Preconditioner, **algo_kwargs):
         # Store the current parameters
@@ -254,7 +254,7 @@ class Hessian:
 
         return s
     
-    def update_spectral_norm(self, preconditioner:Preconditioner=None, max_iter:int=200, tol:float=1e-8):
+    def update_spectral_norm(self, lr:float, preconditioner:Preconditioner=None, max_iter:int=200, tol:float=1e-8):
         # Set the parameters to the current Hessian parameters
         model_params = [nn.Parameter(p.clone()) for p in self.model.parameters() if p.requires_grad]
         for p_m, p in zip([p for p in self.model.parameters() if p.requires_grad], self.params):
@@ -271,13 +271,13 @@ class Hessian:
         def mv(v:Iterable[Parameter]):
             Hv = self.hessian_vector_product(v, grad, params, inplace=False)
             PHv = Hv if preconditioner is None else preconditioner.dot(Hv, inplace=True)
-            return params_sum(v, PHv, alpha=-1)
+            return params_sum(v, PHv, alpha=-lr)
         operator = TorchLinearOperator(mv=mv, params=params)
         # Trasformed oprator (I - \eta PH)^Tv = (I - \eta HP)v
         def mv_transformed(v:Iterable[Parameter]):
             Pv = params_copy(v) if preconditioner is None else preconditioner.dot(v, inplace=False)
             HPv = self.hessian_vector_product(Pv, grad, params)
-            return params_sum(v, HPv, alpha=-1)
+            return params_sum(v, HPv, alpha=-lr)
         operator_transformed = TorchLinearOperator(mv=mv_transformed, params=params)
         # Compute the spectral norm
         s = spectral_norm(operator, operator_transformed, max_iter=max_iter, tol=tol)
@@ -289,7 +289,7 @@ class Hessian:
 
         return s
     
-    def update_eigenvalues(self, top_n:int=1, preconditioner:Preconditioner=None, max_iter:int=200, tol:float=1e-8):
+    def update_eigenvalues(self, lr:float, top_n:int=1, preconditioner:Preconditioner=None, max_iter:int=200, tol:float=1e-8):
         # Set the parameters to the current Hessian parameters
         model_params = [nn.Parameter(p.clone()) for p in self.model.parameters() if p.requires_grad]
         for p_m, p in zip([p for p in self.model.parameters() if p.requires_grad], self.params):
@@ -307,7 +307,7 @@ class Hessian:
         # So, \lambda_i(I - PH) = 1 - \lambda_i(PH) = 1 - \lambda_i(P^{1/2}HP^{1/2})
         
         _, eigvals = self.eigenvalues(max_iter=max_iter, tol=tol, preconditioner=preconditioner, top_n=top_n, method="power_iteration")
-        eigvals = [1 - e for e in eigvals]
+        eigvals = [1 - lr*e for e in eigvals]
         
         # Reset the model parameters
         for p_m, p_old in zip([p for p in self.model.parameters() if p.requires_grad], model_params):

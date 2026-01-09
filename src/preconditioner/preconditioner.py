@@ -7,6 +7,24 @@ from src.utils import params_copy
 
 
 class Preconditioner:
+    def __init__(self, optim:Optimizer=None, model:Module=None):
+        if optim is not None and model is not None:
+            self.compute_p(optim, model)
+
+    def compute_p(self, optim:Optimizer, model:Module):
+        pass
+
+    def copy(self) -> "PreconditionerNew":
+        pass
+
+    def pow(self, p:float, inplace:bool=False) -> "PreconditionerNew":
+        pass
+
+    def dot(self, v:Iterable[Parameter], inplace:bool=False) -> Iterable[Parameter]:
+        pass
+
+
+class PreconditionerNew:
     def __init__(self, optim:Optimizer, model:Module, p:float):
         self.optim = optim
         self.model = model
@@ -20,7 +38,7 @@ class Preconditioner:
         pass
 
     def update_params(self):
-        self.params = [torch.nn.Parameter(p.clone(), requires_grad=True) for p in self.model.parameters() if p.requires_grad]
+        self.params = [torch.nn.Parameter(p.clone(), requires_grad=True).to(p.device) for p in self.model.parameters() if p.requires_grad]
 
     def update(self):
         self.P_dict = {}

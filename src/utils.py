@@ -45,7 +45,7 @@ class ParameterVector():
     
 
 def params_copy(params:Iterable[Parameter]):
-    return [Parameter(p.clone(), requires_grad=p.requires_grad) for p in params]
+    return [Parameter(p.detach().clone(), requires_grad=p.requires_grad).to(p.device) for p in params]
 
 
 def params_dot_product(params1:Iterable[Parameter], params2:Iterable[Parameter]):
@@ -84,7 +84,11 @@ def params_orthonormalize(params:Iterable[Parameter], other_params:Iterable[Iter
 
 
 def params_random_like(params:Iterable[Parameter]):
-    return [Parameter(torch.rand_like(p), requires_grad=False) for p in params]
+    return [Parameter(torch.randn_like(p), requires_grad=False) for p in params]
+
+
+def params_random(shapes:list[tuple[int]], device:str="cpu") -> Iterable[Parameter]:
+    return [Parameter(torch.randn(shape), requires_grad=False) for shape in shapes]
 
 
 class TorchLinearOperator():
@@ -135,25 +139,37 @@ def power_iteration_eigenvalues(operator:TorchLinearOperator, top_n:int=1, max_i
     return eigenvalues, eigenvectors
 
 
-def spectral_norm(operator:TorchLinearOperator, operator_transformed:TorchLinearOperator, max_iter:int=200, tol:float=1e-8):
-    v = params_random_like(operator.params)
-    v = params_normalize(v, inplace=True)
-
+def spectral_norm(operator:TorchLinearOperator, operator_transformed:TorchLinearOperator, span:Iterable[Iterable[Parameter]]=None, max_iter:int=200, tol:float=1e-8):
     s = None
+
+    if span is not None:
+        V = ParameterBasis.from_params(span)
+        Q = V.orthonormalize()
+        QT = Q.transpose()
+
+    v = params_random_like(operator.params) if span is None else params_random([Q.M.shape[1]], device=Q.M.device)
+    v = params_normalize(v, inplace=True)
     
     for _ in range(max_iter):
-        # Compute u_k = Av_{k-1}
-        u = operator.dot(v, inplace=False)
+        # Compute u_k = AQv_{k-1}
+        if span is not None:
+            u = Q.dot(v, out_shape=[p.shape for p in operator.params], inplace=False)
+        else:
+            u = params_copy(v)
+        u = operator.dot(u, inplace=True)
         # Compute u_k = u_k / ||u_k||_2
         u = params_normalize(u, inplace=True)
 
-        # Compute v_k = A^Tu_k
+        # Compute v_k = Q^TA^Tu_k
         v = operator_transformed.dot(u, inplace=True)
+        if span is not None:
+            v = QT.dot(u, inplace=True)
         # Compute v_k = v_k / ||v_k||_2
         v = params_normalize(v, inplace=True)
 
-        # Compute s = u_k^T A v_k and check if it beats the tolerance threshold
-        s_temp = params_dot_product(u, operator.dot(v)).cpu().item()#params_norm(operator.dot(v)).cpu().item()
+        # Compute s = u_k^T AQ v_k and check if it beats the tolerance threshold
+        AQv = operator.dot(v) if span is None else operator.dot(Q.dot(v, out_shape=[p.shape for p in operator.params]))
+        s_temp = params_dot_product(u, AQv).cpu().item()#params_norm(operator.dot(v)).cpu().item()
         if s is None:
             s = s_temp
         else:
@@ -165,27 +181,44 @@ def spectral_norm(operator:TorchLinearOperator, operator_transformed:TorchLinear
     return s
 
 def params_flatten(params:Iterable[Parameter]):
-    v = torch.empty()
+    v = None
     for p in params:
-        v = torch.cat((v, torch.flatten(p)))
-    return v
+        v = torch.cat((v, torch.flatten(p))) if v is not None else torch.flatten(p)
+    return [Parameter(v)]
+
+
+def params_flat_reshape(params:Iterable[Parameter], params_like:Iterable[Parameter]):
+    i = 0
+    p_new = []
+    for p in params_like:
+        n = p.numel()
+        p_part = Parameter(torch.reshape(params[0][i:i+n], p.shape))
+        p_new.append(p_part)
+        i += n
+    return p_new
 
         
 class ParameterBasis():
     def __init__(self, M:torch.tensor):
         self.M = M
 
-    def from_params(params:Iterable[Iterable[Parameter]]):
-        M = torch.empty()
+    def from_params(params:Iterable[Iterable[Parameter]]) -> "ParameterBasis":
+        n = 0
+        for p in params[0]:
+            n += p.numel()
+        M = None
         for p in params:
-            v = params_flatten(p)
-            M = torch.cat((M, v), dim=1)
+            v = params_flatten(p)[0].reshape((-1,1))
+            M = torch.cat((M, v), dim=1) if M is not None else v
         return ParameterBasis(M)
 
-    def dot(self, v:Iterable[Parameter], inplace:bool=False):
+    def dot(self, v:Iterable[Parameter], out_shape=None, inplace:bool=False):
         v = v if inplace else params_copy(v)
-        v = params_flatten(v)
-        return torch.dot(self.M, v)
+        v = params_flatten(v)[0].reshape((-1,1))
+        Mv = [Parameter(self.M @ v.to(self.M.device))]
+        if out_shape is not None:
+            Mv = params_flat_reshape(Mv, params_random(out_shape, device=v.device))
+        return Mv
     
     def transpose(self, inplace:bool=False):
         if inplace:
@@ -195,12 +228,13 @@ class ParameterBasis():
             return ParameterBasis(self.M.T)
     
     def orthonormalize(self, inplace:bool=False):
-        U, _, Vh = torch.linalg.svd(self.M)
-        M = U @ Vh
+        #print(self.M)
+        Q, _ = torch.linalg.qr(self.M)
+        #M = U @ Vh
         if inplace:
-            self.M = M
+            self.M = Q
             return self
         else:
-            return ParameterBasis(M)
+            return ParameterBasis(Q)
         
 

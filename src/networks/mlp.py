@@ -15,7 +15,7 @@ class MLP(nn.Module):
         self.flatten = nn.Flatten()
         self.input_layer = SquareLinear(np.prod(input_shape), width, bias=bias)
         self.activation = get_activation(activation)
-        self.hidden = [SquareLinear(width, width, bias=bias) for _ in range(n_hidden)]
+        self.hidden = nn.ModuleList([SquareLinear(width, width, bias=bias) for _ in range(n_hidden)])
         self.output_layer = SquareLinear(width, output_dim, bias=bias)
 
     def forward(self, x):

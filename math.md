@@ -185,7 +185,5 @@ $$
 
 &= U \tilde{D} V^T
 
-
-
 \end{aligned}
 $$

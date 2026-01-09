@@ -12,6 +12,28 @@ from src.hessian import Hessian
 from src import *
 import pyhessian as hes
 import time
+from src.utils import params_sum
+import tyro
+from tyro.conf import arg, subcommand
+from typing import Annotated, Union, Literal, Set
+
+
+ValidOptim = Union[
+    Annotated[Muon, subcommand("muon")],
+    Annotated[RMSprop, subcommand("rmsprop")],
+    Annotated[SGD, subcommand("gd")]
+]
+ValidModel = Union[
+    Annotated[MLP, subcommand("mlp")]
+]
+
+
+
+def experiment(optim:ValidOptim,
+               model:ValidModel,
+               track:Set[Literal["update_sharpness", "update_spectral_norm", "sharpness", "spectral_norm", "eff_sharpness", "eff_spectral_norm"]]):
+    pass
+
 
 
 def main():
@@ -20,13 +42,14 @@ def main():
 
     # Use CUDA if possible
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(device)
 
     # How many samples are used per class and how many classes are used
     n_samples_per_class = 250
     n_classes = 4
 
     # Create an MLP
-    model = MLP(input_shape=(3, 32, 32), n_hidden=1, width=24, output_dim=n_classes, bias=True)
+    model = MLP(input_shape=(3, 32, 32), n_hidden=2, width=64, output_dim=n_classes, bias=True)
 
     momentum = 0.99
 
@@ -43,19 +66,19 @@ def main():
     thresh_rmsprop = 2/lr_rmsprop
     thresh_muon = (2 + 2*momentum)/lr_muon
     thresh_adam = (2 + 2*momentum)/lr_adam
-    thresh = thresh_rmsprop
+    thresh = thresh_muon
 
     # Optimizers
     #optim = SGD(model.parameters(), lr=lr_sgd)
-    optim = RMSprop(model.parameters(), lr=lr_rmsprop)
+    #optim = RMSprop(model.parameters(), lr=lr_rmsprop)
     #optim = Adam(model.parameters(), lr=lr_adam)
-    #optim = Muon(model.parameters(), lr=lr_muon, nesterov=False, weight_decay=0, momentum=momentum)
+    optim = Muon(model.parameters(), lr=lr_muon, nesterov=False, weight_decay=0, momentum=momentum)
 
     # If a different optimizer is used, specify the preconditioner here
     # NOTE: This currently does not work as intended
     #preconditioner = None
     #preconditioner = MuonPreconditioner(optim, model)
-    preconditioner = RMSpropPreconditioner(optim, model)
+    #preconditioner = RMSpropPreconditioner(optim, model)
     #preconditioner = SGDLRPreconditioner(optim, list(model.parameters()), lr=lr)
 
     # Create the CIFAR-10 dataset and extract n_classes
@@ -102,7 +125,7 @@ def main():
     #hessian_computer = hes.hessian(model, loss_fn, dataloader=data_loader, cuda=False)
 
     # Number of epochs to train for
-    n_epochs = 500
+    n_epochs = 1000
 
     # Number of epochs to warm up for
     n_warmup = 5
@@ -112,6 +135,10 @@ def main():
     eigenvalues2 = []
     singularvalues = []
     commutativity_measures = []
+
+    training_history = []
+    history_size = 20
+    history_update_steps = 10
 
     # Tracking the loss
     losses = []
@@ -125,14 +152,16 @@ def main():
 
         losses_b = []
 
-        if preconditioner is not None:
-            preconditioner.update_params()
-        hessian_computer.update_params()
+        #if preconditioner is not None:
+        #    preconditioner.update_params()
+        #hessian_computer.update_params()
 
         #if epoch >= n_warmup:
         #    eigvals, eigvecs = hessian_computer.eigenvalues(top_n=1, maxIter=200, tol=1e-6)
 
         for i, (inputs, targets) in enumerate(data_loader):
+            print(inputs.shape)
+
             optim.zero_grad()
 
             y_pred = model(inputs.to(device))
@@ -149,35 +178,47 @@ def main():
             # This part compues the eigenvalues (by default top_n=1, specifying just the sharpness)
             if preconditioner is not None:
                 preconditioner.update()
-            #es = hessian_computer.update_eigenvalues(preconditioner=preconditioner)
-            #s = hessian_computer.update_spectral_norm(preconditioner=preconditioner)
+            es = hessian_computer.update_eigenvalues(preconditioner=preconditioner)
+            s = hessian_computer.update_spectral_norm(preconditioner=preconditioner)
             #_, es = hessian_computer.eigenvalues()
-            c = hessian_computer.commutativity_measure(preconditioner)
-            #e = abs(es[0])
+            #c = hessian_computer.commutativity_measure(preconditioner, span=training_history if len(training_history) >= 5 else None)
+            e = abs(es[0])
 
             # Store the eigenvalues and singular values
-            #eigenvalues.append(e)
-            #singularvalues.append(s)
-            commutativity_measures.append(c)
+            eigenvalues.append(e)
+            singularvalues.append(s)
+            #commutativity_measures.append(c)
 
             # Store the loss
             losses.append(losses_b)
 
-            pbar.set_description(f"Loss: {loss.item():.2e} | Commutativity: {c:.2e}")
+            pbar.set_description(f"Loss: {loss.item():.2e} | Updt. Sharpness: {e:.2e} | Updt. Spectral Norm: {s:.2e}")
         else: 
             pbar.set_description(f"Loss: {loss.item():.2e} | Commutativity: -")
             pass
+
+        # Increase history updates
+        """
+        if epoch % history_update_steps == 0:
+            for p in model.parameters():
+                print(p.device)
+            for p in hessian_computer.params:
+                print(p.device)
+            training_history.append(params_sum(list(model.parameters()), hessian_computer.params, alpha=-1))
+            if len(training_history) > history_size:
+                del training_history[0]
+        """
 
     
     # Plot the eigenvalues throughout training
     fig, ax = plt.subplots(1, 2)
     ax[0].plot(losses)
     #ax[1].plot(eigenvalues, label="Sharpness")
-    #ax[1].plot(eigenvalues, label="Update Sharpness")
+    ax[1].plot(eigenvalues, label="Update Sharpness")
     #ax[1].plot(singularvalues, label="Spectral Norm")
-    #ax[1].plot(singularvalues, label="Update Spectral Norm")
-    ax[1].plot(commutativity_measures, label="Commutativity")
-    #ax[1].hlines([thresh], xmin=0, xmax=n_epochs, colors="black", linestyles="--")
+    ax[1].plot(singularvalues, label="Update Spectral Norm")
+    #ax[1].plot(commutativity_measures, label="Commutativity")
+    ax[1].hlines([thresh], xmin=0, xmax=n_epochs, colors="black", linestyles="--")
     ax[1].legend()
     plt.savefig(f"experiments/experiment-{time.time_ns()}.png")
     #plt.show()
