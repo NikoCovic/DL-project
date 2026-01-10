@@ -1,47 +1,6 @@
 import torch
 from typing import Iterable
 from torch.nn.parameter import Parameter
-
-
-class ParameterVector():
-    def __init__(self, params:Iterable[Parameter]):
-        self.params = [p for p in params]
-        self.dim = sum([p.numel() for p in self.params])
-    
-    def dot(self, v:"ParameterVector") -> float:
-        prod = 0
-        for p1, p2 in zip(self.params, v.params):
-            prod += torch.sum(p1 * p2)
-        return prod
-    
-    def sum(self, v:"ParameterVector", alpha:float=1, inplace:bool=False) -> "ParameterVector":
-        v_sum = self if inplace else self.copy()
-        for i, p in enumerate(v.params):
-            v_sum.params[i].data.add_(p*alpha)
-        return v_sum
-    
-    def copy(self) -> "ParameterVector":
-        params_copy = [p.clone() for p in self.params]
-        return ParameterVector(params_copy)
-
-    def norm(self) -> float:
-        return self.dot(self)**0.5
-    
-    def mult(self, alpha:float, inplace:bool=False) ->"ParameterVector":
-        v = self if inplace else self.copy()
-        for i, p in enumerate(v.params):
-            v.params[i].mul_(alpha)
-        return v
-    
-    def orthonormal(self, vectors:Iterable["ParameterVector"], inplace:bool=False) -> "ParameterVector":
-        v_orthonormal = self if inplace else self.copy()
-        for v in vectors:
-            v_orthonormal.sum(v, alpha=-v_orthonormal.dot(v), inplace=True)
-        return v_orthonormal.mult(1/v_orthonormal.norm(), inplace=True)
-    
-    def random_like(params:Iterable[Parameter]):
-        params_rand = [Parameter(torch.rand_like(p), requires_grad=False) for p in params]
-        return ParameterVector(params_rand)
     
 
 def params_copy(params:Iterable[Parameter]):
@@ -139,37 +98,22 @@ def power_iteration_eigenvalues(operator:TorchLinearOperator, top_n:int=1, max_i
     return eigenvalues, eigenvectors
 
 
-def spectral_norm(operator:TorchLinearOperator, operator_transformed:TorchLinearOperator, span:Iterable[Iterable[Parameter]]=None, max_iter:int=200, tol:float=1e-8):
+def spectral_norm(operator:TorchLinearOperator, operator_transposed:TorchLinearOperator, max_iter:int=200, tol:float=1e-8):
     s = None
 
-    if span is not None:
-        V = ParameterBasis.from_params(span)
-        Q = V.orthonormalize()
-        QT = Q.transpose()
-
-    v = params_random_like(operator.params) if span is None else params_random([Q.M.shape[1]], device=Q.M.device)
-    v = params_normalize(v, inplace=True)
+    u = params_random_like(operator.params)
+    u = params_normalize(u, inplace=True)
     
     for _ in range(max_iter):
-        # Compute u_k = AQv_{k-1}
-        if span is not None:
-            u = Q.dot(v, out_shape=[p.shape for p in operator.params], inplace=False)
-        else:
-            u = params_copy(v)
-        u = operator.dot(u, inplace=True)
-        # Compute u_k = u_k / ||u_k||_2
-        u = params_normalize(u, inplace=True)
-
-        # Compute v_k = Q^TA^Tu_k
-        v = operator_transformed.dot(u, inplace=True)
-        if span is not None:
-            v = QT.dot(u, inplace=True)
-        # Compute v_k = v_k / ||v_k||_2
+        v = operator_transposed.dot(u, inplace=False)
         v = params_normalize(v, inplace=True)
 
-        # Compute s = u_k^T AQ v_k and check if it beats the tolerance threshold
-        AQv = operator.dot(v) if span is None else operator.dot(Q.dot(v, out_shape=[p.shape for p in operator.params]))
-        s_temp = params_dot_product(u, AQv).cpu().item()#params_norm(operator.dot(v)).cpu().item()
+        u = operator.dot(v, inplace=True)
+        u = params_normalize(u, inplace=True)
+
+        # Compute s = u_k^T A v_k and check if it beats the tolerance threshold
+        Av = operator.dot(v)
+        s_temp = params_dot_product(u, Av).cpu().item()
         if s is None:
             s = s_temp
         else:

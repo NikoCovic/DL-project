@@ -1,4 +1,7 @@
 from .tracker import Tracker
 from .sharpnesstracker import SharpnessTracker
+from .spectralnormtracker import SpectralNormTracker
 from .effsharpnesstracker import EffSharpnessTracker
+from .effspectralnormtracker import EffSpectralNormTracker
 from .updatesharpnesstracker import UpdateSharpnessTracker
+from .updatespectralnormtracker import UpdateSpectralNormTracker

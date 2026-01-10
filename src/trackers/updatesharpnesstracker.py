@@ -16,6 +16,6 @@ class UpdateSharpnessTracker(Tracker):
         preconditioner = fetch_preconditioner(self.optim, self.model)
         lr = self.optim.param_groups[0]["lr"]
         es = self.hessian.update_eigenvalues(lr=lr, preconditioner=preconditioner)
-        self.measurements.append(abs(es[0]))
+        return abs(es[0])
     
         

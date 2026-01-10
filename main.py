@@ -1,166 +1,140 @@
-from src.networks import MLP
-from torch.optim import SGD, RMSprop, Muon, Adam
-import matplotlib.pyplot as plt
-from tqdm import tqdm
-import numpy as np
-from torch.utils.data import DataLoader, Dataset
-from torchvision.datasets import CIFAR10
-from torchvision.transforms import transforms
+from torch.optim import Muon, RMSprop
+from torch.nn import MSELoss, CrossEntropyLoss
+from torch.utils.data import DataLoader
 import torch
-import torch.nn as nn
+
+from tqdm import tqdm
+from time import time_ns
+import json
+
+import matplotlib.pyplot as plt
+from dataclasses import asdict
+
 from src.hessian import Hessian
-from src import *
-import pyhessian as hes
-import time
-from src.utils import params_sum
+from src.trackers import SharpnessTracker, SpectralNormTracker, EffSharpnessTracker, EffSpectralNormTracker, UpdateSharpnessTracker, UpdateSpectralNormTracker
+from src.networks import MLP
+from src.datasets import CIFAR10Dataset
+from src.configs import *
+from typing import Union, Literal, Annotated, Set
 import tyro
-from tyro.conf import arg, subcommand
-from typing import Annotated, Union, Literal, Set
+from tyro.conf import arg
 
 
 ValidOptim = Union[
-    Annotated[Muon, subcommand("muon")],
-    Annotated[RMSprop, subcommand("rmsprop")],
-    Annotated[SGD, subcommand("gd")]
+    Literal["muon", "rmsprop"]
 ]
 ValidModel = Union[
-    Annotated[MLP, subcommand("mlp")]
+    Literal["mlp"]
+]
+ValidDataset = Union[
+    Literal["cifar10"]
 ]
 
 
-
-def experiment(optim:ValidOptim,
-               model:ValidModel,
-               track:Set[Literal["update_sharpness", "update_spectral_norm", "sharpness", "spectral_norm", "eff_sharpness", "eff_spectral_norm"]]):
-    pass
-
-
-
-def main():
-
-    torch.manual_seed(41)
-
-    # Use CUDA if possible
+def main(optim:ValidOptim,
+         model:ValidModel,
+         dataset:ValidDataset,
+         cifar10_config:Annotated[CIFAR10Config, arg(name="cifar10")],
+         mlp_config:Annotated[MLPConfig, arg(name="mlp")],
+         muon_config:Annotated[MuonConfig, arg(name="muon")],
+         rmsprop_config:Annotated[RMSpropConfig, arg(name="rmsprop")],
+         trackers:Set[Literal["sharpness", "spectral_norm", "eff_sharpness", "eff_spectral_norm", "update_sharpness", "update_spectral_norm"]],
+         sharpness_config:Annotated[TrackerConfig, arg(name="sharpness")],
+         spectral_norm_config:Annotated[TrackerConfig, arg(name="spectral_norm")],
+         eff_sharpness_config:Annotated[TrackerConfig, arg(name="eff_sharpness")],
+         eff_spectral_norm_config:Annotated[TrackerConfig, arg(name="eff_spectral_norm")],
+         update_sharpness_config:Annotated[TrackerConfig, arg(name="update_sharpness")],
+         update_spectral_norm_config:Annotated[TrackerConfig, arg(name="update_spectral_norm")],
+         n_epochs:int=500,
+         seed:int=42):
+    
+    torch.manual_seed(seed)
+    
+    # Construct the dataset
+    dataset_name = dataset
+    if dataset == "cifar10":
+        dataset = CIFAR10Dataset(n_classes=cifar10_config.n_classes,
+                                 n_samples_per_class=cifar10_config.n_samples_per_class,
+                                 loss=cifar10_config.loss)
+        loss = cifar10_config.loss
+    
+    # Create the dataloder
+    dataloader = DataLoader(dataset, batch_size=len(dataset), shuffle=False)
+        
+    # Construct the loss
+    if loss == "mse":
+        loss_fn = MSELoss()
+    elif loss == "ce":
+        loss_fn = CrossEntropyLoss()
+    
+    # Construct the model
+    model_name = model
+    if model == "mlp":
+        model = MLP(input_shape=dataset.input_shape, 
+                    output_dim=dataset.output_dim, 
+                    activation=mlp_config.activation, 
+                    n_hidden=mlp_config.n_hidden, 
+                    width=mlp_config.width, 
+                    bias=mlp_config.bias)
+        
+    # Construct the optimizer
+    optim_name = optim
+    if optim == "muon":
+        optim = Muon(model.parameters(),
+                     lr=muon_config.lr,
+                     momentum=muon_config.momentum,
+                     weight_decay=muon_config.weight_decay,
+                     nesterov=muon_config.nesterov)
+    elif optim == "rmsprop":
+        optim = RMSprop(model.parameters(),
+                        lr=rmsprop_config.lr,
+                        alpha=rmsprop_config.alpha,
+                        eps=rmsprop_config.eps)
+        
+    # Set the device
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(device)
 
-    # How many samples are used per class and how many classes are used
-    n_samples_per_class = 250
-    n_classes = 4
+    # Create the Hessian
+    hessian = Hessian(model, next(iter(dataloader)), loss_fn, device=device)
 
-    # Create an MLP
-    model = MLP(input_shape=(3, 32, 32), n_hidden=2, width=64, output_dim=n_classes, bias=True)
-
-    momentum = 0.99
-
-    # The learning rate
-    lr_sgd = 2/200
-    lr_rmsprop = 2e-5
-    lr_muon = 2e-3
-    lr_adam = 2e-3
-    #lr = lr_muon
-
-    # The sharpness threshold SGD should oscillate around
-    thresh_sgd = 2/lr_sgd
-    thresh_sgd_lr = 2
-    thresh_rmsprop = 2/lr_rmsprop
-    thresh_muon = (2 + 2*momentum)/lr_muon
-    thresh_adam = (2 + 2*momentum)/lr_adam
-    thresh = thresh_muon
-
-    # Optimizers
-    #optim = SGD(model.parameters(), lr=lr_sgd)
-    #optim = RMSprop(model.parameters(), lr=lr_rmsprop)
-    #optim = Adam(model.parameters(), lr=lr_adam)
-    optim = Muon(model.parameters(), lr=lr_muon, nesterov=False, weight_decay=0, momentum=momentum)
-
-    # If a different optimizer is used, specify the preconditioner here
-    # NOTE: This currently does not work as intended
-    #preconditioner = None
-    #preconditioner = MuonPreconditioner(optim, model)
-    #preconditioner = RMSpropPreconditioner(optim, model)
-    #preconditioner = SGDLRPreconditioner(optim, list(model.parameters()), lr=lr)
-
-    # Create the CIFAR-10 dataset and extract n_classes
-    cifar10 = CIFAR10("./data/", download=True, transform=transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.49, 0.48, 0.45), (0.24703233, 0.24348505, 0.26158768))]))
-    imgs = []
-    targets = []
-    class_counts = {0:0, 1:0, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0, 8:0, 9:0}
-    for i in range(len(cifar10)):
-        img, target = cifar10[i]
-        if target < n_classes and class_counts[target] < n_samples_per_class:
-            imgs.append(img)
-            targets.append(target)
-            class_counts[target] += 1
-
-    class C10D(Dataset):
-        def __init__(self, images, targets, loss_type="mse"):
-            self.images = np.array(images).astype(np.float32)
-            self.targets = np.array(targets).astype(np.float32)
-            self.output_dim = np.max(targets)+1
-            # Transform the targets
-            if loss_type == "mse":
-                new_targets = np.zeros((len(targets), self.output_dim))
-                new_targets[np.arange(len(targets)), targets] = 1
-                self.targets = new_targets.astype(np.float32)
-
-        def __len__(self):
-            return len(self.images)
+    # Create the trackers
+    tracker_names = trackers
+    trackers = {}
+    results = {}
+    for tracker_name in tracker_names:
+        if tracker_name == "sharpness":
+            trackers[tracker_name] = SharpnessTracker(hessian, **asdict(sharpness_config))
+            results[tracker_name] = asdict(sharpness_config)
+        elif tracker_name == "spectral_norm":
+            trackers[tracker_name] = SpectralNormTracker(hessian, **asdict(spectral_norm_config))
+            results[tracker_name] = asdict(spectral_norm_config)
+        elif tracker_name == "eff_sharpness":
+            trackers[tracker_name] = EffSharpnessTracker(hessian, optim, model, **asdict(eff_sharpness_config))
+            results[tracker_name] = asdict(eff_sharpness_config)
+        elif tracker_name == "eff_spectral_norm":
+            trackers[tracker_name] = EffSpectralNormTracker(hessian, optim, model, **asdict(eff_spectral_norm_config))
+            results[tracker_name] = asdict(eff_spectral_norm_config)
+        elif tracker_name == "update_sharpness":
+            trackers[tracker_name] = UpdateSharpnessTracker(hessian, optim, model, **asdict(update_sharpness_config))
+            results[tracker_name] = asdict(update_sharpness_config)
+        elif tracker_name == "update_spectral_norm":
+            trackers[tracker_name] = UpdateSpectralNormTracker(hessian, optim, model, **asdict(update_spectral_norm_config))
+            results[tracker_name] = asdict(update_spectral_norm_config)
         
-        def __getitem__(self, idx):
-            return self.images[idx], self.targets[idx]
-        
-    # Construct dataset and full-batch data loader
-    dataset = C10D(imgs, targets)
-    data_loader = DataLoader(dataset, batch_size=len(dataset), shuffle=False)
+    # Begin the training loop
+    pbar = tqdm(range(n_epochs))
 
-    # Use the MSE loss
-    loss_fn = nn.MSELoss()
+    train_loss_history = []
 
-    # Construct the Hessian class, to be used to compute the sharpness
-    # This class works pretty much exactly the same as pyhessian.hessian 
-    # (different inputs, but functions are the same and do the same thing)
-    # The difference is that this class can also work with a Preconditioner
-    hessian_computer = Hessian(model, next(iter(data_loader)), loss_fn, device=device)
-    #hessian_computer = hes.hessian(model, loss_fn, dataloader=data_loader, cuda=False)
-
-    # Number of epochs to train for
-    n_epochs = 1000
-
-    # Number of epochs to warm up for
-    n_warmup = 5
-
-    # List of all eigenvalues
-    eigenvalues = []
-    eigenvalues2 = []
-    singularvalues = []
-    commutativity_measures = []
-
-    training_history = []
-    history_size = 20
-    history_update_steps = 10
-
-    # Tracking the loss
-    losses = []
-
-    pbar = tqdm(range(n_epochs), desc="Loss: - | Sharpness: -")
-
-    # Train the model
     for epoch in pbar:
 
-        #print(f"Epoch: {epoch+1}")
+        # Update the Hessian parameters to the ones pre-epoch
+        hessian.update_params()
 
-        losses_b = []
+        n = 0
+        avg_train_loss = 0
 
-        #if preconditioner is not None:
-        #    preconditioner.update_params()
-        #hessian_computer.update_params()
-
-        #if epoch >= n_warmup:
-        #    eigvals, eigvecs = hessian_computer.eigenvalues(top_n=1, maxIter=200, tol=1e-6)
-
-        for i, (inputs, targets) in enumerate(data_loader):
-            print(inputs.shape)
+        for i, (inputs, targets) in enumerate(dataloader):
 
             optim.zero_grad()
 
@@ -168,61 +142,56 @@ def main():
             loss = loss_fn(targets.to(device), y_pred)
 
             loss.backward()
-
-            losses_b.append(loss.item())
+            n += 1
 
             optim.step()
-
-        if epoch >= n_warmup:
-            #preconditioner.prepare()
-            # This part compues the eigenvalues (by default top_n=1, specifying just the sharpness)
-            if preconditioner is not None:
-                preconditioner.update()
-            es = hessian_computer.update_eigenvalues(preconditioner=preconditioner)
-            s = hessian_computer.update_spectral_norm(preconditioner=preconditioner)
-            #_, es = hessian_computer.eigenvalues()
-            #c = hessian_computer.commutativity_measure(preconditioner, span=training_history if len(training_history) >= 5 else None)
-            e = abs(es[0])
-
-            # Store the eigenvalues and singular values
-            eigenvalues.append(e)
-            singularvalues.append(s)
-            #commutativity_measures.append(c)
-
-            # Store the loss
-            losses.append(losses_b)
-
-            pbar.set_description(f"Loss: {loss.item():.2e} | Updt. Sharpness: {e:.2e} | Updt. Spectral Norm: {s:.2e}")
-        else: 
-            pbar.set_description(f"Loss: {loss.item():.2e} | Commutativity: -")
-            pass
-
-        # Increase history updates
-        """
-        if epoch % history_update_steps == 0:
-            for p in model.parameters():
-                print(p.device)
-            for p in hessian_computer.params:
-                print(p.device)
-            training_history.append(params_sum(list(model.parameters()), hessian_computer.params, alpha=-1))
-            if len(training_history) > history_size:
-                del training_history[0]
-        """
-
-    
-    # Plot the eigenvalues throughout training
-    fig, ax = plt.subplots(1, 2)
-    ax[0].plot(losses)
-    #ax[1].plot(eigenvalues, label="Sharpness")
-    ax[1].plot(eigenvalues, label="Update Sharpness")
-    #ax[1].plot(singularvalues, label="Spectral Norm")
-    ax[1].plot(singularvalues, label="Update Spectral Norm")
-    #ax[1].plot(commutativity_measures, label="Commutativity")
-    ax[1].hlines([thresh], xmin=0, xmax=n_epochs, colors="black", linestyles="--")
-    ax[1].legend()
-    plt.savefig(f"experiments/experiment-{time.time_ns()}.png")
-    #plt.show()
-
         
+            # Update average loss
+            avg_train_loss += loss.item()
+
+        # Store loss
+        avg_train_loss /= n
+        train_loss_history.append(avg_train_loss)
+
+        # Update trackers and pbar
+        text = f"train_loss: {avg_train_loss:.2e}"
+        for tracker in trackers:
+            trackers[tracker].update()
+            #val = "-" if trackers[tracker].time <= trackers[tracker].n_warmup else f"{trackers[tracker].measurements[-1]:.2e}"
+            #text += f"{tracker}: {val} | "
+        pbar.set_description(text)
+
+    # Plot the results
+    fig, ax = plt.subplots(len(trackers)+1, squeeze=False)
+    ax[0, 0].plot(train_loss_history, label="train_loss")
+    ax[0, 0].legend()
+    for i, tracker in enumerate(trackers):
+        ax[i+1,0].plot(trackers[tracker].measurements, label=tracker)
+        ax[i+1,0].legend()
+    plt.show()
+
+    # Save the results
+    experiment_name = f"experiment-{time_ns()}"
+    experiment_dir = f"experiments/{experiment_name}.json"
+
+    with open(experiment_dir, "w") as f:
+        results["optim"] = optim_name
+        results["dataset"] = dataset_name
+        results["model"] = model_name
+        results["trackers"] = list(tracker_names)
+        results["n_epochs"] = n_epochs
+        results["seed"] = seed
+        # Add the configs
+        results["mlp"] = asdict(mlp_config)
+        results["muon"] = asdict(muon_config)
+        results["rmsprop"] = asdict(rmsprop_config)
+        results["cifar10"] = asdict(cifar10_config)
+        # Add the measurments results
+        for tracker in trackers:
+            results[tracker]["measurements"] = trackers[tracker].measurements
+
+        json.dump(results, f)
+
+
 if __name__ == "__main__":
-    main()
+    tyro.cli(main)

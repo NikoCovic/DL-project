@@ -5,8 +5,8 @@ from torch.nn import Module
 from src.preconditioner import fetch_preconditioner
 
 
-class EffSharpnessTracker(Tracker):
-    def __init__(self, hessian:Hessian, optim:Optimizer, model:Module, freq:int=1, n_warmup:int=5):
+class UpdateSpectralNormTracker(Tracker):
+    def __init__(self, hessian:Hessian, optim:Optimizer, model:Module, freq:int=1, n_warmup:int=1):
         super().__init__(freq, n_warmup)
         self.hessian = hessian
         self.optim = optim
@@ -14,5 +14,8 @@ class EffSharpnessTracker(Tracker):
 
     def _update(self):
         preconditioner = fetch_preconditioner(self.optim, self.model)
-        _, es = self.hessian.eigenvalues(preconditioner=preconditioner)
-        return es[0]
+        lr = self.optim.param_groups[0]["lr"]
+        s = self.hessian.update_spectral_norm(lr=lr, preconditioner=preconditioner)
+        return abs(s)
+    
+        

@@ -10,5 +10,5 @@ class Tracker:
 
     def update(self):
         if self.time >= self.n_warmup and self.time % self.freq == 0:
-            self._update()
+            self.measurements.append(self._update())
         self.time += 1
