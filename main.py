@@ -1,7 +1,9 @@
+import os
 from torch.optim import Muon, RMSprop
 from torch.nn import MSELoss, CrossEntropyLoss
 from torch.utils.data import DataLoader
 import torch
+from torch.utils.data import random_split
 
 from tqdm import tqdm
 from time import time_ns
@@ -45,10 +47,12 @@ def main(optim:ValidOptim,
          eff_spectral_norm_config:Annotated[TrackerConfig, arg(name="eff_spectral_norm")],
          update_sharpness_config:Annotated[TrackerConfig, arg(name="update_sharpness")],
          update_spectral_norm_config:Annotated[TrackerConfig, arg(name="update_spectral_norm")],
+         val_split:float=0.2,
          n_epochs:int=500,
          seed:int=42):
     
     torch.manual_seed(seed)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     # Construct the dataset
     dataset_name = dataset
@@ -59,7 +63,14 @@ def main(optim:ValidOptim,
         loss = cifar10_config.loss
     
     # Create the dataloder
-    dataloader = DataLoader(dataset, batch_size=len(dataset), shuffle=False)
+    val_size = int(len(dataset)*val_split)
+    train_size = len(dataset) - val_size
+    
+    train_dataset, val_dataset = random_split(
+        dataset, [train_size, val_size], generator=torch.Generator().manual_seed(seed)
+    )
+    dataloader = DataLoader(train_dataset, batch_size=len(train_dataset), shuffle=False)
+    val_dataloader = DataLoader(val_dataset, batch_size=len(val_dataset), shuffle=False)
         
     # Construct the loss
     if loss == "mse":
@@ -89,10 +100,7 @@ def main(optim:ValidOptim,
         optim = RMSprop(model.parameters(),
                         lr=rmsprop_config.lr,
                         alpha=rmsprop_config.alpha,
-                        eps=rmsprop_config.eps)
-        
-    # Set the device
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+                        eps=rmsprop_config.eps)    
 
     # Create the Hessian
     hessian = Hessian(model, next(iter(dataloader)), loss_fn, device=device)
@@ -125,6 +133,10 @@ def main(optim:ValidOptim,
     pbar = tqdm(range(n_epochs))
 
     train_loss_history = []
+    train_acc_history = []
+
+    val_loss_history = []
+    val_acc_history = []
 
     for epoch in pbar:
 
@@ -133,6 +145,7 @@ def main(optim:ValidOptim,
 
         n = 0
         avg_train_loss = 0
+        avg_train_acc = 0
 
         for i, (inputs, targets) in enumerate(dataloader):
 
@@ -146,15 +159,46 @@ def main(optim:ValidOptim,
 
             optim.step()
         
-            # Update average loss
+            # Update averages
             avg_train_loss += loss.item()
+
+            y_true = targets.to(device)
+            if y_true.dim() > 1:
+                y_true = y_true.argmax(dim=1)
+
+            avg_train_acc += (y_pred.argmax(dim=1) == y_true).float().mean().item()
 
         # Store loss
         avg_train_loss /= n
+        avg_train_acc /= n
         train_loss_history.append(avg_train_loss)
+        train_acc_history.append(avg_train_acc)
+
+        # Validation loss
+        model.eval()
+        n = 0
+        avg_val_loss = 0
+        avg_val_acc = 0
+        for i, (inputs, targets) in enumerate(val_dataloader):
+            y_pred = model(inputs.to(device))
+            loss = loss_fn(targets.to(device), y_pred)
+            n += 1
+            avg_val_loss += loss.item()
+            y_true = targets.to(device)
+            if y_true.dim() > 1:
+                y_true = y_true.argmax(dim=1)
+            avg_val_acc += (y_pred.argmax(dim=1) == y_true).float().mean().item()
+        
+        avg_val_loss /= n
+        avg_val_acc /= n
+        val_loss_history.append(avg_val_loss)
+        val_acc_history.append(avg_val_acc)
+        
+        model.train()
+
 
         # Update trackers and pbar
-        text = f"train_loss: {avg_train_loss:.2e}"
+        text = f"train_loss: {avg_train_loss:.2e}  train_acc: {avg_train_acc*100:.2f}%  val_loss: {avg_val_loss:.2e}  val_acc: {avg_val_acc*100:.2f}% | "
         for tracker in trackers:
             trackers[tracker].update()
             #val = "-" if trackers[tracker].time <= trackers[tracker].n_warmup else f"{trackers[tracker].measurements[-1]:.2e}"
@@ -168,11 +212,14 @@ def main(optim:ValidOptim,
     for i, tracker in enumerate(trackers):
         ax[i+1,0].plot(trackers[tracker].measurements, label=tracker)
         ax[i+1,0].legend()
-    plt.show()
 
     # Save the results
     experiment_name = f"experiment-{time_ns()}"
     experiment_dir = f"experiments/{experiment_name}.json"
+
+    os.makedirs("experiments", exist_ok=True)
+
+    plt.savefig(f"experiments/{experiment_name}.png")
 
     with open(experiment_dir, "w") as f:
         results["optim"] = optim_name
@@ -189,6 +236,12 @@ def main(optim:ValidOptim,
         # Add the measurments results
         for tracker in trackers:
             results[tracker]["measurements"] = trackers[tracker].measurements
+
+        # Add train/val loss/acc history
+        results["train_loss_history"] = train_loss_history
+        results["train_acc_history"] = train_acc_history
+        results["val_loss_history"] = val_loss_history
+        results["val_acc_history"] = val_acc_history
 
         json.dump(results, f)
 
