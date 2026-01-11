@@ -1,4 +1,4 @@
-from .preconditioner import Preconditioner, PreconditionerNew
+from .preconditioner import Preconditioner
 from torch.optim import RMSprop
 from typing import Iterable
 from torch.nn.parameter import Parameter

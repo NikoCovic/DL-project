@@ -58,14 +58,13 @@ class Hessian:
 
         return s
 
-    def eigenvalues(self, max_iter:int=200, tol:float=1e-12, top_n:int=1, preconditioner:Preconditioner=None, method:str="power_iteration"):
+    def eigenvalues(self, preconditioner:Preconditioner=None, **algo_kwargs):
         # Set the model parameters to the current parameters
         # Store the current parameters
         model_params = self._set_model_params(self.params)
         params = [p for p in self.model.parameters() if p.requires_grad]
         
         if preconditioner is not None:
-            #preconditioner.prepare()
             preconditioner_sqrt = preconditioner.pow(0.5)
 
         # Compute loss
@@ -75,21 +74,20 @@ class Hessian:
         # Compute the gradient
         grad = torch.autograd.grad(loss, params, create_graph=True)
 
-        if method == "power_iteration":
-            # Construct operator for P^{1/2}HP^{1/2}v
-            def mv(v):
-                Psqv = params_copy(v) if preconditioner is None else preconditioner_sqrt.dot(v)
-                HPsqv = self.hessian_vector_product(Psqv, grad, params)
-                PsqHPsqv = HPsqv if preconditioner is None else preconditioner_sqrt.dot(HPsqv)
-                return PsqHPsqv
-            operator = TorchLinearOperator(mv, params)
-            eigenvalues, eigenvectors = power_iteration_eigenvalues(operator, max_iter=max_iter, top_n=top_n, tol=tol)
+        # Construct operator for P^{1/2}HP^{1/2}v
+        def mv(v):
+            Psqv = params_copy(v) if preconditioner is None else preconditioner_sqrt.dot(v)
+            HPsqv = self.hessian_vector_product(Psqv, grad, params)
+            PsqHPsqv = HPsqv if preconditioner is None else preconditioner_sqrt.dot(HPsqv)
+            return PsqHPsqv
+        operator = TorchLinearOperator(mv, params)
+        eigenvalues, eigenvectors = power_iteration_eigenvalues(operator, **algo_kwargs)
         
         self._set_model_params(model_params)
 
         return eigenvectors, eigenvalues
     
-    def spectral_norm(self, preconditioner:Preconditioner=None, max_iter:int=200, tol=1e-8):
+    def spectral_norm(self, preconditioner:Preconditioner=None, **algo_kwargs):
         # Set the parameters to the current Hessian parameters
         model_params = self._set_model_params(self.params)
         params = [p for p in self.model.parameters() if p.requires_grad]
@@ -98,29 +96,32 @@ class Hessian:
         loss = self.loss_fn(self.targets.to(self.device), self.model(self.inputs.to(self.device)))
         grad = torch.autograd.grad(loss, params, create_graph=True)
 
-        if preconditioner is not None:
-            preconditioner_sqrt = preconditioner.pow(0.5)
-
         # Construct the operators
-        # Regular operator is P^{1/2}HP^{1/2}v and so is the transformed one since (P^{1/2}HP^{1/2})^T = P^{1/2}HP^{1/2}
+        # Regular operator is PHv
         def mv(v:Iterable[Parameter]):
-            if preconditioner is not None:
-                v = preconditioner_sqrt.dot(v, inplace=True)
             v = self.hessian_vector_product(v, grad, params, inplace=True)
             if preconditioner is not None:
-                v = preconditioner_sqrt.dot(v, inplace=True)
+                v = preconditioner.dot(v, inplace=True)
             return v
         operator = TorchLinearOperator(mv=mv, params=params)
 
+        # Transposed operator is (PH)^Tv = HPv
+        def mv_transposed(v:Iterable[Parameter]):
+            if preconditioner is not None:
+                v = preconditioner.dot(v, inplace=True)
+            v = self.hessian_vector_product(v, grad, params, inplace=True)
+            return v
+        operator_transposed = TorchLinearOperator(mv=mv_transposed, params=params)
+
         # Compute the spectral norm
-        s = spectral_norm(operator, operator, max_iter=max_iter, tol=tol)
+        s = spectral_norm(operator, operator_transposed, **algo_kwargs)
         
         # Reset the model parameters
         self._set_model_params(model_params)
 
         return s
     
-    def update_spectral_norm(self, lr:float, preconditioner:Preconditioner, max_iter:int=200, tol:float=1e-8):
+    def update_spectral_norm(self, lr:float, preconditioner:Preconditioner, **algo_kwargs):
         # Set the parameters to the current Hessian parameters
         model_params = self._set_model_params(self.params)
         params = [p for p in self.model.parameters() if p.requires_grad]
@@ -143,7 +144,7 @@ class Hessian:
             return params_sum(v, HPv, alpha=-lr)
         operator_transformed = TorchLinearOperator(mv=mv_transposed, params=params)
         # Compute the spectral norm
-        s = spectral_norm(operator, operator_transformed, max_iter=max_iter, tol=tol)
+        s = spectral_norm(operator, operator_transformed, **algo_kwargs)
         
         # Reset the model parameters
         self._set_model_params(model_params)
@@ -156,13 +157,13 @@ class Hessian:
             p_m.data = p.data
         return current_params
     
-    def update_eigenvalues(self, lr:float, top_n:int=1, preconditioner:Preconditioner=None, max_iter:int=200, tol:float=1e-8):
+    def update_eigenvalues(self, lr:float, preconditioner:Preconditioner=None, **algo_kwargs):
         # Since (I - lr*PH) is non-symmetric, it's easier to compute the eigenvalues of (P^{1/2}HP^{1/2})
         # This can be done since \lambda(PH) = \lambda(P^{1/2}HP^{1/2})
         # Additionally, (I - lr*PH)v_i = v_i - lr*PHv_i = (1 - lr*\lambda(PH))v_i, where v_i is an eigenvector
         # So, \lambda_i(I - lr*PH) = 1 - lr*\lambda_i(PH) = 1 - lr*\lambda_i(P^{1/2}HP^{1/2})
         
-        _, eigvals = self.eigenvalues(max_iter=max_iter, tol=tol, preconditioner=preconditioner, top_n=top_n, method="power_iteration")
+        _, eigvals = self.eigenvalues(preconditioner=preconditioner, **algo_kwargs)
         eigvals = [1 - lr*e for e in eigvals]
 
         return eigvals

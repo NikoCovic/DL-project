@@ -1,6 +1,6 @@
 import torch
 from torch.optim import Muon
-from .preconditioner import Preconditioner, PreconditionerNew
+from .preconditioner import Preconditioner
 from typing import Iterable
 from torch.nn.parameter import Parameter
 from torch.nn import Module
