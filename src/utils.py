@@ -67,6 +67,7 @@ def power_iteration_eigenvalues(operator:TorchLinearOperator, top_n:int=1, max_i
     while len(eigenvectors) < top_n:
         # Initalize eigenvector
         v = params_random_like(operator.params)
+        v = params_normalize(v, inplace=True)
         # Initialize eigenvalue to None
         eigval = None
 
@@ -108,7 +109,7 @@ def spectral_norm(operator:TorchLinearOperator, operator_transposed:TorchLinearO
         v = operator_transposed.dot(u, inplace=False)
         v = params_normalize(v, inplace=True)
 
-        u = operator.dot(v, inplace=True)
+        u = operator.dot(v, inplace=False)
         u = params_normalize(u, inplace=True)
 
         # Compute s = u_k^T A v_k and check if it beats the tolerance threshold
