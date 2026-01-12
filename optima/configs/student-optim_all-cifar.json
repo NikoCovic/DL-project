@@ -1,0 +1,12 @@
+{
+	"wandb_project": "cifar10-airbench",
+	"experiment_id": "auto",
+
+	"number_gpus": 1,
+	"runs_per_gpu": 5,
+	
+	"metric_dataloader": "AirBenchCifarLoader",
+	"dataset_path": "data/cifar10",
+	"metric_batch_size": 256,
+	"hessian_num_batches": 10
+}

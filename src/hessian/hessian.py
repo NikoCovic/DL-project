@@ -131,7 +131,6 @@ class Hessian:
         loss = self.loss_fn(self.targets.to(self.device), self.model(self.inputs.to(self.device)))
         grad = torch.autograd.grad(loss, params, create_graph=True)
 
-        
         # Construct the operators
         # Regular operator is (I - \eta PH)v = v - \eta PHv
         def mv(v:Iterable[Parameter]):
