@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=airbench_cifar10_train
+#SBATCH --job-name=optima_experiment
 #SBATCH --account=deep_learning
 #SBATCH --time=01:00:00
 #SBATCH --output=slurm/out/%x/%j.log
@@ -11,4 +11,4 @@ set -euo pipefail
 nvidia-smi
 
 # Run the script
-uv run experiment.py
+uv run optima/main.py --config optima/configs/student-optim_all-cifar.json
