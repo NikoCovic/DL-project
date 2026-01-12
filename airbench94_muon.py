@@ -543,9 +543,12 @@ def train(run, model, optimizer_config=None, epochs=8, verbose=False, callback=N
         #    Evaluation    #
         ####################
 
-        # Save the accuracy and loss from the last training batch of the epoch
+        # Compute train accuracy from the last training batch *before* running evaluation.
+        # With torch.compile + CUDAGraphs, model outputs may be backed by reusable buffers that
+        # can be overwritten by subsequent model invocations (e.g., inside evaluate()).
+        train_acc = (outputs.detach().clone().argmax(1) == labels).float().mean().item()
+
         val_acc = evaluate(model, test_loader, tta_level=0)
-        train_acc = (outputs.detach().argmax(1) == labels).float().mean().item()
 
         if callback is not None:
             callback(epoch + 1, model, train_acc, val_acc)

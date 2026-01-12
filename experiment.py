@@ -1,156 +1,34 @@
-from typing import final
-import uuid
-from airbench94_muon import CifarNet, train, MuonConfig, SGDConfig, CifarLoader, BatchNorm, AdamConfig
+from airbench94_muon import CifarNet, train, MuonConfig, SGDConfig, CifarLoader, AdamConfig
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 from tqdm import tqdm
-from pyhessian import hessian
-from itertools import islice
 # import loss_landscapes
 # import loss_landscapes.metrics as metrics
 import torch.multiprocessing as mp
 import numpy as np
 import wandb
 import time
+import argparse
+from experiment_utils.config import load_experiment_config, ExperimentConfig
+from experiment_utils.compile import compile_for_training
 
-import copy
-
-EXPERIMENT_ID = str(uuid.uuid4())[:8]
-
-
-def pyhessian_sharpness(model, loader, num_batches=10):
-    """
-    Computes relative sharpness by scaling the top Hessian eigenvalue 
-    by the squared norm of the model parameters.
-    """
-    model = model._orig_mod if hasattr(model, "_orig_mod") else model
-    criterion = torch.nn.CrossEntropyLoss()
-    limited_loader = list(islice(loader, num_batches))
-    
-    hessian_comp = hessian(model, criterion, dataloader=limited_loader, cuda=True)
-    lambda_max = hessian_comp.eigenvalues(top_n=1)[0][0]
-
-    # 3. Compute Squared Frobenius Norm of all parameters
-    total_norm_sq = 0.0
-    for p in model.parameters():
-        if p.requires_grad:
-            total_norm_sq += torch.norm(p.data)**2
-    
-    # Calculate relative sharpness:
-    relative_sharpness = lambda_max * total_norm_sq.item()
-
-    return lambda_max, relative_sharpness
-
-@torch.no_grad()
-def get_sam_sharpness(model, loader, rho=0.05, num_batches=10):
-    model.eval()
-    device = next(model.parameters()).device
-    total_sharpness = 0.0
-
-    for batch_idx, (inputs, targets) in enumerate(iter(loader)):
-        if batch_idx >= num_batches:
-            break
-            
-        inputs, targets = inputs.to(device), targets.to(device)
-        
-        # 1. Compute base loss and gradients
-        with torch.enable_grad():
-            outputs = model(inputs)
-            base_loss = F.cross_entropy(outputs, targets)
-            model.zero_grad()
-            base_loss.backward()
-        
-        # 2. Compute gradient norm
-        grads = [p.grad for p in model.parameters() if p.grad is not None]
-        grad_norm = torch.linalg.norm(
-            torch.stack([torch.linalg.norm(g) for g in grads])
-        ) + 1e-12
-        
-        # 3. Perturb parameters
-        scale = rho / grad_norm
-        epsilons = []
-        for p in model.parameters():
-            if p.grad is not None:
-                eps = p.grad * scale  # Moved scale calculation out
-                p.add_(eps)
-                epsilons.append(eps)
-        
-        # 4. Compute perturbed loss
-        adv_loss = F.cross_entropy(model(inputs), targets)
-        
-        # 5. Restore parameters
-        for p, eps in zip(
-            (p for p in model.parameters() if p.grad is not None), 
-            epsilons
-        ):  
-            p.sub_(eps)
-                
-        total_sharpness += (adv_loss - base_loss).item()
-        model.zero_grad()  # Clean up gradients
-
-    return total_sharpness / min(num_batches, len(loader))
-
-@torch.no_grad()
-def get_samlike_sharpness(model, loader, rho=0.05, num_batches=10):
-    model.eval()
-    device = next(model.parameters()).device
-    total_sharpness = 0.0
-
-    loader_iter = iter(loader)
-
-    for batch_idx, (inputs, targets) in enumerate(loader_iter):
-        if batch_idx >= num_batches:
-            break
-
-        inputs, targets = inputs.to(device), targets.to(device)
-
-        # 1. Compute base loss and gradients
-        with torch.enable_grad():
-            outputs = model(inputs)
-            base_loss = F.cross_entropy(outputs, targets)
-            model.zero_grad()
-            base_loss.backward()
-
-        # 2. Compute TRUE gradient norm (flatten and concatenate)
-        grads = [p.grad.flatten() for p in model.parameters() if p.grad is not None]
-        grad_norm = torch.linalg.norm(torch.cat(grads)) + 1e-12
-
-        # 3. Perturb parameters
-        scale = rho / grad_norm
-        epsilons = []
-        for p in model.parameters():
-            if p.grad is not None:
-                eps = p.grad * scale
-                p.add_(eps)
-                epsilons.append(eps)
-
-        # 4. Compute perturbed loss
-        adv_loss = F.cross_entropy(model(inputs), targets)
-
-        # 5. Restore parameters
-        for p, eps in zip(
-            (p for p in model.parameters() if p.grad is not None),
-            epsilons
-        ):
-            p.sub_(eps)
-
-        # Normalize by gradient norm squared and rho squared
-        # This approximates the Hessian eigenvalue in gradient direction
-        sharpness = (adv_loss - base_loss) / (grad_norm**2 * rho**2 + 1e-12)
-        total_sharpness += sharpness.item()
-        
-        model.zero_grad()
-
-    return total_sharpness / min(num_batches, len(loader))
+from experiment_utils.pyhessian_sharpness import pyhessian_sharpness
+from experiment_utils.sam_sharpness import get_sam_sharpness
+from experiment_utils.samlike_sharpness import get_samlike_sharpness
 
 
-def train_and_log(experiment_name, model, optimizer_config):
+def train_and_log(experiment_name, model, optimizer_config, experiment_config: ExperimentConfig):
     logs = []
-    metric_loader = CifarLoader('dataloaders/cifar10', train=True, batch_size=1000)
+    metric_loader = CifarLoader(
+        'dataloaders/cifar10',
+        train=True,
+        batch_size=experiment_config.metric_batch_size,
+    )
 
     def callback_fn(epoch, model, training_accuracy, validation_accuracy):
         model.eval()
+
+        # Free any stale cached blocks before expensive higher-order/autograd workloads.
+        torch.cuda.empty_cache()
 
         log = {
             "epoch": epoch,
@@ -163,7 +41,9 @@ def train_and_log(experiment_name, model, optimizer_config):
 
         if epoch > 0:
             # print(f"Calculating Hessian for epoch {epoch}...")
-            log["hessian"], log["relative_hessian"] = pyhessian_sharpness(model, metric_loader)
+            log["hessian"], log["relative_hessian"] = pyhessian_sharpness(
+                model, metric_loader, num_batches=experiment_config.hessian_num_batches
+            )
         
         wandb.log(log)
         logs.append(log)
@@ -189,27 +69,33 @@ def train_and_log(experiment_name, model, optimizer_config):
     return final_acc, logs
 
 
-def worker(experiment_name, gpu_id, runs_per_gpu, optimizer_config):
+def worker(experiment_name, gpu_id, runs_per_gpu, optimizer_config, experiment_config: ExperimentConfig):
     all_acc, all_logs = [], []
     torch.cuda.set_device(gpu_id)
     model = CifarNet().to(f'cuda:{gpu_id}').to(memory_format=torch.channels_last)
-    model = torch.compile(model, mode="max-autotune")
+    model = compile_for_training(model)
 
     for run in tqdm(range(runs_per_gpu)) if gpu_id == 0 else range(runs_per_gpu):
-        acc, logs = train_and_log(experiment_name, model, optimizer_config)
+        acc, logs = train_and_log(experiment_name, model, optimizer_config, experiment_config)
         all_acc.append(acc)
         all_logs.append(logs)
         
     return all_acc, all_logs
 
 
-def train_distributed(experiment_name, gpus, runs_per_gpu, optimizer_config):
+def train_distributed(experiment_name, gpus, runs_per_gpu, optimizer_config, experiment_config: ExperimentConfig):
 
     if gpus == 1:
-        return worker(experiment_name, 0, runs_per_gpu, optimizer_config)
+        return worker(experiment_name, 0, runs_per_gpu, optimizer_config, experiment_config)
 
     with mp.Pool(gpus) as pool:
-        out = [pool.apply_async(worker, args=(experiment_name, gpu_id, runs_per_gpu, optimizer_config)) for gpu_id in range(gpus)]
+        out = [
+            pool.apply_async(
+                worker,
+                args=(experiment_name, gpu_id, runs_per_gpu, optimizer_config, experiment_config),
+            )
+            for gpu_id in range(gpus)
+        ]
         results = [p.get() for p in out]
     
     all_accs, all_logs = [], []
@@ -244,22 +130,32 @@ def print_aggregated_metrics(name, all_accs, all_logs, metrics=None, epochs=None
 
 
 def main():
-    gpus = 1
-    runs_per_gpu = 5
-    experiment_name = f"experiment-{EXPERIMENT_ID}"
+    parser = argparse.ArgumentParser(description="Run CIFAR10 experiment with sharpness/Hessian metrics")
+    parser.add_argument(
+        "--config",
+        required=True,
+        help="Path to experiment JSON config (e.g. experiment-configs/stclstr-quick.json)",
+    )
+    args = parser.parse_args()
+
+    experiment_config = load_experiment_config(args.config)
+
+    gpus = experiment_config.number_gpus
+    runs_per_gpu = experiment_config.runs_per_gpu
+    experiment_name = experiment_config.experiment_id
     # experiment_name = "hessian-every-epoch"
 
     print("Performing Warmup...")
-    train_distributed("warmup", gpus, 1, MuonConfig())
+    train_distributed("warmup", gpus, 1, MuonConfig(), experiment_config)
 
     # print("Running Muon Experiments...")
-    muon_accs, muon_logs = train_distributed(experiment_name, gpus, runs_per_gpu, MuonConfig())
+    muon_accs, muon_logs = train_distributed(experiment_name, gpus, runs_per_gpu, MuonConfig(), experiment_config)
 
     print("Running SGD Experiments...")
-    sgd_accs, sgd_logs = train_distributed(experiment_name, gpus, runs_per_gpu, SGDConfig())
+    sgd_accs, sgd_logs = train_distributed(experiment_name, gpus, runs_per_gpu, SGDConfig(), experiment_config)
 
     # print("Running Adam Experiments...")
-    adam_accs, adam_logs = train_distributed(experiment_name, gpus, runs_per_gpu, AdamConfig())
+    adam_accs, adam_logs = train_distributed(experiment_name, gpus, runs_per_gpu, AdamConfig(), experiment_config)
 
     # print_aggregated_metrics("Muon", muon_accs, muon_logs)
     # print_aggregated_metrics("SGD", sgd_accs, sgd_logs)
