@@ -470,8 +470,10 @@ def train(run, model, experiment_config, optimizer_config=None, epochs=8, verbos
     head_lr = optimizer_config.head_lr
     wd = optimizer_config.wd
 
-    test_loader = CifarLoader("cifar10", train=False, batch_size=2000)
-    train_loader = CifarLoader("cifar10", train=True, batch_size=batch_size, aug=dict(flip=True, translate=2))
+    dataset_path = str(experiment_config.dataset_path)
+
+    test_loader = CifarLoader(dataset_path, train=False, batch_size=2000)
+    train_loader = CifarLoader(dataset_path, train=True, batch_size=batch_size, aug=dict(flip=True, translate=2))
     if run == "warmup":
         # The only purpose of the first run is to warmup the compiled model, so we can use dummy data
         train_loader.labels = torch.randint(0, 10, size=(len(train_loader.labels),), device=train_loader.labels.device)

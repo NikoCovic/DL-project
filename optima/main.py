@@ -54,10 +54,10 @@ def train_and_log(experiment_name, model, optimizer_config, experiment_config: E
     final_acc = train(
         "run",
         model,
-        optimizer_config,
-        callback=callback_fn,
-        epochs=16,
         experiment_config=experiment_config,
+        optimizer_config=optimizer_config,
+        callback=callback_fn,
+        epochs=16
     )
 
     post = time.time()
