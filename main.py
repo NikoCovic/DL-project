@@ -60,9 +60,7 @@ def main(optim:ValidOptim,
     # Construct the dataset
     dataset_name = dataset
     if dataset == "cifar10":
-        dataset = CIFAR10Dataset(n_classes=cifar10_config.n_classes,
-                                 n_samples_per_class=cifar10_config.n_samples_per_class,
-                                 loss=cifar10_config.loss, device=device)
+        dataset = CIFAR10Dataset(**asdict(cifar10_config))
         loss = cifar10_config.loss
     
     # Create the dataloder
@@ -157,8 +155,8 @@ def main(optim:ValidOptim,
 
             optim.zero_grad()
 
-            y_pred = model(inputs)
-            loss = loss_fn(targets, y_pred)
+            y_pred = model(inputs.to(device))
+            loss = loss_fn(targets.to(device), y_pred)
 
             loss.backward()
             n += 1
@@ -168,7 +166,7 @@ def main(optim:ValidOptim,
             # Update averages
             avg_train_loss += loss.item()
 
-            y_true = targets
+            y_true = targets.to(device)
             if y_true.dim() > 1:
                 y_true = y_true.argmax(dim=1)
 
@@ -186,11 +184,11 @@ def main(optim:ValidOptim,
         avg_val_loss = 0
         avg_val_acc = 0
         for i, (inputs, targets) in enumerate(val_dataloader):
-            y_pred = model(inputs)
-            loss = loss_fn(targets, y_pred)
+            y_pred = model(inputs.to(device))
+            loss = loss_fn(targets.to(device), y_pred)
             n += 1
             avg_val_loss += loss.item()
-            y_true = targets
+            y_true = targets.to(device)
             if y_true.dim() > 1:
                 y_true = y_true.argmax(dim=1)
             avg_val_acc += (y_pred.argmax(dim=1) == y_true).float().mean().item()
