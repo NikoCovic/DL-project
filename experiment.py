@@ -147,7 +147,7 @@ def get_samlike_sharpness(model, loader, rho=0.05, num_batches=10):
 
 def train_and_log(experiment_name, model, optimizer_config):
     logs = []
-    metric_loader = CifarLoader('cifar10', train=True, batch_size=1000)
+    metric_loader = CifarLoader('dataloaders/cifar10', train=True, batch_size=1000)
 
     def callback_fn(epoch, model, training_accuracy, validation_accuracy):
         model.eval()
@@ -175,7 +175,7 @@ def train_and_log(experiment_name, model, optimizer_config):
     wandb.init(project="cifar10-airbench", group=experiment_name, config=optimizer_config.represent())
     middle = time.time()
 
-    final_acc = train(optimizer_config, model, optimizer_config, callback=callback_fn, epochs=16)
+    final_acc = train("run", model, optimizer_config, callback=callback_fn, epochs=16)
 
     post = time.time()
     wandb.log({"tta_val_accuracy": final_acc, "tta_gap": logs[-1]["val_acc"] - final_acc})
@@ -204,6 +204,10 @@ def worker(experiment_name, gpu_id, runs_per_gpu, optimizer_config):
 
 
 def train_distributed(experiment_name, gpus, runs_per_gpu, optimizer_config):
+
+    if gpus == 1:
+        return worker(experiment_name, 0, runs_per_gpu, optimizer_config)
+
     with mp.Pool(gpus) as pool:
         out = [pool.apply_async(worker, args=(experiment_name, gpu_id, runs_per_gpu, optimizer_config)) for gpu_id in range(gpus)]
         results = [p.get() for p in out]
@@ -240,7 +244,7 @@ def print_aggregated_metrics(name, all_accs, all_logs, metrics=None, epochs=None
 
 
 def main():
-    gpus = 4
+    gpus = 1
     runs_per_gpu = 5
     experiment_name = f"experiment-{EXPERIMENT_ID}"
     # experiment_name = "hessian-every-epoch"
