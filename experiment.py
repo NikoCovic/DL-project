@@ -1,4 +1,4 @@
-from airbench94_muon import CifarNet, train, MuonConfig, SGDConfig, CifarLoader, AdamConfig
+from airbench94_muon import CifarNet, train, MuonConfig, SGDConfig, AdamConfig
 import torch
 from tqdm import tqdm
 # import loss_landscapes
@@ -18,11 +18,7 @@ from experiment_utils.samlike_sharpness import get_samlike_sharpness
 
 def train_and_log(experiment_name, model, optimizer_config, experiment_config: ExperimentConfig):
     logs = []
-    metric_loader = CifarLoader(
-        'dataloaders/cifar10',
-        train=True,
-        batch_size=experiment_config.metric_batch_size,
-    )
+    metric_loader = experiment_config.metric_dataloader_object
 
     def callback_fn(epoch, model, training_accuracy, validation_accuracy):
         model.eval()
@@ -52,7 +48,7 @@ def train_and_log(experiment_name, model, optimizer_config, experiment_config: E
         model.train()
     
     start = time.time()
-    wandb.init(project="cifar10-airbench", group=experiment_name, config=optimizer_config.represent())
+    wandb.init(project=experiment_config.wandb_project, group=experiment_name, config=optimizer_config.represent())
     middle = time.time()
 
     final_acc = train("run", model, optimizer_config, callback=callback_fn, epochs=16)
