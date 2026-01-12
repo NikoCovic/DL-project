@@ -938,6 +938,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "matplotlib" },
+    { name = "networkx" },
     { name = "pyhessian" },
     { name = "scipy" },
     { name = "torch" },
@@ -950,6 +951,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "matplotlib", specifier = ">=3.10.8" },
+    { name = "networkx", specifier = ">=3.6.1" },
     { name = "pyhessian", specifier = ">=0.1" },
     { name = "scipy", specifier = ">=1.16.3" },
     { name = "torch", specifier = ">=2.9.1" },

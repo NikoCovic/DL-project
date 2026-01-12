@@ -1,7 +1,0 @@
-{
-	"experiment_id": "auto",
-	"number_gpus": 1,
-	"runs_per_gpu": 5,
-	"metric_batch_size": 256,
-	"hessian_num_batches": 10
-}

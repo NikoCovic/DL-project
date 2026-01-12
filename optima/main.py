@@ -1,4 +1,4 @@
-from airbench94_muon import CifarNet, train, MuonConfig, SGDConfig, AdamConfig
+from utils.airbench94_muon import CifarNet, train, MuonConfig, SGDConfig, AdamConfig
 import torch
 from tqdm import tqdm
 # import loss_landscapes
@@ -8,12 +8,12 @@ import numpy as np
 import wandb
 import time
 import argparse
-from experiment_utils.config import load_experiment_config, ExperimentConfig
-from experiment_utils.compile import compile_for_training
+from utils.config import load_experiment_config, ExperimentConfig
+# from utils.compile import compile_for_training
 
-from experiment_utils.pyhessian_sharpness import pyhessian_sharpness
-from experiment_utils.sam_sharpness import get_sam_sharpness
-from experiment_utils.samlike_sharpness import get_samlike_sharpness
+from utils.pyhessian_sharpness import pyhessian_sharpness
+from utils.sam_sharpness import get_sam_sharpness
+from utils.samlike_sharpness import get_samlike_sharpness
 
 
 def train_and_log(experiment_name, model, optimizer_config, experiment_config: ExperimentConfig):
@@ -51,7 +51,14 @@ def train_and_log(experiment_name, model, optimizer_config, experiment_config: E
     wandb.init(project=experiment_config.wandb_project, group=experiment_name, config=optimizer_config.represent())
     middle = time.time()
 
-    final_acc = train("run", model, optimizer_config, callback=callback_fn, epochs=16)
+    final_acc = train(
+        "run",
+        model,
+        optimizer_config,
+        callback=callback_fn,
+        epochs=16,
+        experiment_config=experiment_config,
+    )
 
     post = time.time()
     wandb.log({"tta_val_accuracy": final_acc, "tta_gap": logs[-1]["val_acc"] - final_acc})
@@ -69,7 +76,7 @@ def worker(experiment_name, gpu_id, runs_per_gpu, optimizer_config, experiment_c
     all_acc, all_logs = [], []
     torch.cuda.set_device(gpu_id)
     model = CifarNet().to(f'cuda:{gpu_id}').to(memory_format=torch.channels_last)
-    model = compile_for_training(model)
+    model = torch.compile(model, mode="max-autotune-no-cudagraphs")
 
     for run in tqdm(range(runs_per_gpu)) if gpu_id == 0 else range(runs_per_gpu):
         acc, logs = train_and_log(experiment_name, model, optimizer_config, experiment_config)

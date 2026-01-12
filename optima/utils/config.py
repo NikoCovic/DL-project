@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import uuid
 from typing import Any
-from airbench94_muon import CifarLoader
+from .airbench94_muon import CifarLoader
 
 @dataclass(frozen=True)
 class ExperimentConfig:
@@ -14,7 +14,7 @@ class ExperimentConfig:
     metric_batch_size: int
     hessian_num_batches: int
     metric_dataloader_object: Any
-
+    dataset_path: str
 
 
 def load_experiment_config(path: str | Path) -> ExperimentConfig:
@@ -35,12 +35,17 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
     metric_batch_size = int(data.get("metric_batch_size"))
     hessian_num_batches = int(data.get("hessian_num_batches"))
 
+    project_root = Path(__file__).resolve().parents[2]
+    dataset_path = project_root / Path(data.get("dataset_path"))
+
     if str(data.get("metric_dataloader")) == "AirBenchCifarLoader":
         metric_dataloader_object = CifarLoader(
-            'dataloaders/cifar10',
+            str(dataset_path),
             train=True,
             batch_size=metric_batch_size,
         )
+    else:
+        raise ValueError(f"Unknown metric_dataloader: {data.get('metric_dataloader')!r}")
 
     if number_gpus <= 0:
         raise ValueError("config.number_gpus must be > 0")
@@ -59,4 +64,5 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
         hessian_num_batches=hessian_num_batches,
         metric_dataloader_object=metric_dataloader_object,
         wandb_project=wandb_project,
+        dataset_path=dataset_path,
     )
