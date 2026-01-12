@@ -18,6 +18,12 @@ class RMSpropConfig:
 
 
 @dataclass
+class AdamConfig:
+    lr:float = 2e-5
+    betas:tuple[float, float] = (0.0, 0.99)
+
+
+@dataclass
 class MLPConfig:
     width:int = 64
     n_hidden:int = 2

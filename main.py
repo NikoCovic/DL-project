@@ -1,4 +1,4 @@
-from torch.optim import Muon, RMSprop
+from torch.optim import Muon, RMSprop, Adam
 from torch.nn import MSELoss, CrossEntropyLoss
 from torch.utils.data import DataLoader
 import torch
@@ -19,9 +19,11 @@ from typing import Union, Literal, Annotated, Set
 import tyro
 from tyro.conf import arg
 
+import pyhessian as hes
+
 
 ValidOptim = Union[
-    Literal["muon", "rmsprop"]
+    Literal["muon", "rmsprop", "adam"]
 ]
 ValidModel = Union[
     Literal["mlp"]
@@ -38,6 +40,7 @@ def main(optim:ValidOptim,
          mlp_config:Annotated[MLPConfig, arg(name="mlp")],
          muon_config:Annotated[MuonConfig, arg(name="muon")],
          rmsprop_config:Annotated[RMSpropConfig, arg(name="rmsprop")],
+         adam_config:Annotated[AdamConfig, arg(name="adam")],
          trackers:Set[Literal["sharpness", "spectral_norm", "eff_sharpness", "eff_spectral_norm", "update_sharpness", "update_spectral_norm"]],
          sharpness_config:Annotated[TrackerConfig, arg(name="sharpness")],
          spectral_norm_config:Annotated[TrackerConfig, arg(name="spectral_norm")],
@@ -81,21 +84,20 @@ def main(optim:ValidOptim,
     optim_name = optim
     if optim == "muon":
         optim = Muon(model.parameters(),
-                     lr=muon_config.lr,
-                     momentum=muon_config.momentum,
-                     weight_decay=muon_config.weight_decay,
-                     nesterov=muon_config.nesterov)
+                     **asdict(muon_config))
     elif optim == "rmsprop":
         optim = RMSprop(model.parameters(),
-                        lr=rmsprop_config.lr,
-                        alpha=rmsprop_config.alpha,
-                        eps=rmsprop_config.eps)
+                        **asdict(rmsprop_config))
+    elif optim == "adam":
+        optim = Adam(model.parameters(),
+                     **asdict(adam_config))
         
     # Set the device
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # Create the Hessian
     hessian = Hessian(model, next(iter(dataloader)), loss_fn, device=device)
+    #hessian = hes.hessian(model, loss_fn, dataloader=dataloader)
 
     # Create the trackers
     tracker_names = trackers
