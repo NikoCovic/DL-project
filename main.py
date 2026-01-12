@@ -21,8 +21,6 @@ from typing import Union, Literal, Annotated, Set
 import tyro
 from tyro.conf import arg
 
-import pyhessian as hes
-
 
 ValidOptim = Union[
     Literal["muon", "rmsprop", "adam"]
@@ -200,32 +198,20 @@ def main(optim:ValidOptim,
         
         model.train()
 
-
         # Update trackers and pbar
         text = f"train_loss: {avg_train_loss:.2e}  train_acc: {avg_train_acc*100:.2f}%  val_loss: {avg_val_loss:.2e}  val_acc: {avg_val_acc*100:.2f}% | "
         for tracker in trackers:
             trackers[tracker].update()
-            #val = "-" if trackers[tracker].time <= trackers[tracker].n_warmup else f"{trackers[tracker].measurements[-1]:.2e}"
-            #text += f"{tracker}: {val} | "
         pbar.set_description(text)
-
-    # Plot the results
-    fig, ax = plt.subplots(len(trackers)+1, squeeze=False)
-    ax[0, 0].plot(train_loss_history, label="train_loss")
-    ax[0, 0].legend()
-    for i, tracker in enumerate(trackers):
-        ax[i+1,0].plot(trackers[tracker].measurements, label=tracker)
-        ax[i+1,0].legend()
 
     # Save the results
     experiment_name = f"experiment-{time_ns()}"
-    experiment_dir = f"experiments/{experiment_name}.json"
+    experiment_dir = f"experiments/{experiment_name}"
 
     os.makedirs("experiments", exist_ok=True)
+    os.makedirs(experiment_dir, exist_ok=True)
 
-    plt.savefig(f"experiments/{experiment_name}.png")
-
-    with open(experiment_dir, "w") as f:
+    with open(f"{experiment_dir}/results.json", "w") as f:
         results["optim"] = optim_name
         results["dataset"] = dataset_name
         results["model"] = model_name
@@ -249,6 +235,33 @@ def main(optim:ValidOptim,
 
         json.dump(results, f)
 
+    # Save result plot
+    _save_result_figures(results, experiment_dir)
+
+def _save_result_figures(results, experiment_dir:str):
+    trackers = results["trackers"]
+
+    # Store tracker results
+    for tracker in trackers:
+        n_warmup = results[tracker]["n_warmup"]
+        freq = results[tracker]["freq"]
+        measurements = results[tracker]["measurements"]
+        _save_measurement_results(measurements, tracker, experiment_dir, n_warmup, freq)
+
+    # Store the loss/accuracy results
+    _save_measurement_results(results["train_loss_history"], "train_loss_history", experiment_dir)
+    _save_measurement_results(results["val_loss_history"], "val_loss_history", experiment_dir)
+    _save_measurement_results(results["train_acc_history"], "train_acc_history", experiment_dir)
+    _save_measurement_results(results["val_acc_history"], "val_acc_history", experiment_dir)
+
+
+def _save_measurement_results(measurements, name:str, experiment_dir:str, n_warmup:int=0, freq:int=1):
+    fig = plt.figure()
+    x = [n_warmup + i*freq for i in range(len(measurements))]
+    plt.plot(x, measurements)
+    plt.xlabel("Epoch")
+    plt.ylabel(name)
+    fig.savefig(f"{experiment_dir}/{name}_plot.png")
 
 if __name__ == "__main__":
     tyro.cli(main)
