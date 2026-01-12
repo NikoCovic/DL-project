@@ -1,6 +1,7 @@
 import torch
 from typing import Iterable
 from torch.nn.parameter import Parameter
+from torch.optim import Optimizer, Adam, RMSprop, Muon, SGD
     
 
 def params_copy(params:Iterable[Parameter]):
@@ -141,6 +142,26 @@ def params_flat_reshape(params:Iterable[Parameter], params_like:Iterable[Paramet
         p_new.append(p_part)
         i += n
     return p_new
+
+
+def fetch_threshold(optim:Optimizer, metric:str="eff_sharpness"):
+    if metric == "update_sharpness":
+        return 1
+    elif metric == "eff_sharpness":
+        if isinstance(optim, Adam):
+            momentum = optim.param_groups[0]["betas"][0]
+            lr = optim.param_groups[0]["lr"]
+            return (2 + 2*momentum)/((1 - momentum)*lr)
+        elif isinstance(optim, Muon):
+            momentum = optim.param_groups[0]["momentum"][0]
+            lr = optim.param_groups[0]["lr"]
+            return (2 + 2*momentum)/lr
+        elif isinstance(optim, SGD):
+            lr = optim.param_groups[0]["lr"]
+            return 2/lr
+        elif isinstance(optim, RMSprop):
+            lr = optim.param_groups[0]["lr"]
+            return 2/lr
 
         
 class ParameterBasis():

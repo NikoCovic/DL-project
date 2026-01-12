@@ -17,6 +17,8 @@ from src.trackers import SharpnessTracker, SpectralNormTracker, EffSharpnessTrac
 from src.networks import MLP
 from src.datasets import CIFAR10Dataset
 from src.configs import *
+from src.utils import fetch_threshold
+
 from typing import Union, Literal, Annotated, Set
 import tyro
 from tyro.conf import arg
@@ -121,12 +123,14 @@ def main(optim:ValidOptim,
         elif tracker_name == "eff_sharpness":
             trackers[tracker_name] = EffSharpnessTracker(hessian, optim, model, **asdict(eff_sharpness_config))
             results[tracker_name] = asdict(eff_sharpness_config)
+            results[tracker_name]["thresh"] = fetch_threshold(optim, metric=tracker_name)
         elif tracker_name == "eff_spectral_norm":
             trackers[tracker_name] = EffSpectralNormTracker(hessian, optim, model, **asdict(eff_spectral_norm_config))
             results[tracker_name] = asdict(eff_spectral_norm_config)
         elif tracker_name == "update_sharpness":
             trackers[tracker_name] = UpdateSharpnessTracker(hessian, optim, model, **asdict(update_sharpness_config))
             results[tracker_name] = asdict(update_sharpness_config)
+            results[tracker_name]["thresh"] = fetch_threshold(optim, metric=tracker_name)
         elif tracker_name == "update_spectral_norm":
             trackers[tracker_name] = UpdateSpectralNormTracker(hessian, optim, model, **asdict(update_spectral_norm_config))
             results[tracker_name] = asdict(update_spectral_norm_config)
@@ -238,6 +242,7 @@ def main(optim:ValidOptim,
     # Save result plot
     _save_result_figures(results, experiment_dir)
 
+
 def _save_result_figures(results, experiment_dir:str):
     trackers = results["trackers"]
 
@@ -246,7 +251,11 @@ def _save_result_figures(results, experiment_dir:str):
         n_warmup = results[tracker]["n_warmup"]
         freq = results[tracker]["freq"]
         measurements = results[tracker]["measurements"]
-        _save_measurement_results(measurements, tracker, experiment_dir, n_warmup, freq)
+        if tracker in ["eff_sharpness", "update_sharpness"]:
+            thresh = results[tracker]["thresh"]
+        else:
+            thresh = None
+        _save_measurement_results(measurements, tracker, experiment_dir, thresh=thresh, n_warmup=n_warmup, freq=freq)
 
     # Store the loss/accuracy results
     _save_measurement_results(results["train_loss_history"], "train_loss_history", experiment_dir)
@@ -255,10 +264,12 @@ def _save_result_figures(results, experiment_dir:str):
     _save_measurement_results(results["val_acc_history"], "val_acc_history", experiment_dir)
 
 
-def _save_measurement_results(measurements, name:str, experiment_dir:str, n_warmup:int=0, freq:int=1):
+def _save_measurement_results(measurements, name:str, experiment_dir:str, thresh:float=None, n_warmup:int=0, freq:int=1):
     fig = plt.figure()
     x = [n_warmup + i*freq for i in range(len(measurements))]
     plt.plot(x, measurements)
+    if thresh is not None:
+        plt.hlines([thresh], xmin=min(x), xmax=max(x), color="black", linestyles="--")
     plt.xlabel("Epoch")
     plt.ylabel(name)
     fig.savefig(f"{experiment_dir}/{name}_plot.png")
