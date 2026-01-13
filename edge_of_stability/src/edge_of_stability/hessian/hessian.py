@@ -4,6 +4,7 @@ import torch.nn as nn
 from torch.nn.parameter import Parameter
 import torch
 from typing import Iterable
+import numpy as np
 
 
 class Hessian:
@@ -135,12 +136,12 @@ class Hessian:
         # Regular operator is (I - \eta PH)v = v - \eta PHv
         def mv(v:Iterable[Parameter]):
             Hv = self.hessian_vector_product(v, grad, params, inplace=False)
-            PHv = Hv if preconditioner is None else preconditioner.dot(Hv, inplace=True)
+            PHv = preconditioner.dot(Hv, inplace=True)
             return params_sum(v, PHv, alpha=-lr)
         operator = TorchLinearOperator(mv=mv, params=params)
         # Trasformed oprator (I - \eta PH)^Tv = (I - \eta HP)v
         def mv_transposed(v:Iterable[Parameter]):
-            Pv = params_copy(v) if preconditioner is None else preconditioner.dot(v, inplace=False)
+            Pv = preconditioner.dot(v, inplace=False)
             HPv = self.hessian_vector_product(Pv, grad, params)
             return params_sum(v, HPv, alpha=-lr)
         operator_transformed = TorchLinearOperator(mv=mv_transposed, params=params)

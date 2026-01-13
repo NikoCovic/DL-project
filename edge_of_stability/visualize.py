@@ -8,9 +8,9 @@ def visualize(experiment:str):
     trackers = results["trackers"]
 
     n_cols = min(3, len(trackers))
-    n_rows = len(trackers) // 3 + 1
+    n_rows = len(trackers) // 3 + 1 + (len(trackers) < 3)
 
-    fig, ax = plt.subplots(nrows=n_rows, ncols=n_cols)
+    fig, ax = plt.subplots(nrows=n_rows, ncols=n_cols, squeeze=False)
 
     for idx, tracker in enumerate(trackers):
         n_warmup = results[tracker]["n_warmup"]
