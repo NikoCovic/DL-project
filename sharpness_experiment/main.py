@@ -20,7 +20,10 @@ from utils.pyhessian_sharpness import pyhessian_sharpness
 from utils.sam_sharpness import get_sam_sharpness
 from utils.samlike_sharpness import get_samlike_sharpness
 
-from edge_of_stability.hessian import Hessian
+try:
+    from edge_of_stability.hessian import Hessian
+except ImportError:
+    raise ImportError("edge_of_stability module not found. Install it using 'pip install -e .' from the 'DL-project/edge_of_stability' directory.")
 
 
 def niko_sharpness(model, data_batch):

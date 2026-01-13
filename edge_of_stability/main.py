@@ -1,6 +1,9 @@
 import os
 
-from torch.optim import Muon, RMSprop
+try:
+    from torch.optim import Muon, RMSprop
+except ImportError:
+    raise ImportError("Muon optimizer not found. Install the nightly version of PyTorch")
 
 from torch.nn import MSELoss, CrossEntropyLoss
 from torch.utils.data import DataLoader
@@ -14,11 +17,14 @@ import json
 import matplotlib.pyplot as plt
 from dataclasses import asdict
 
-from edge_of_stability.hessian import Hessian
-from edge_of_stability.trackers import SharpnessTracker, SpectralNormTracker, EffSharpnessTracker, EffSpectralNormTracker, UpdateSharpnessTracker, UpdateSpectralNormTracker
-from edge_of_stability.networks import MLP
-from edge_of_stability.datasets import CIFAR10Dataset
-from edge_of_stability.configs import *
+try:
+    from edge_of_stability.hessian import Hessian
+    from edge_of_stability.trackers import SharpnessTracker, SpectralNormTracker, EffSharpnessTracker, EffSpectralNormTracker, UpdateSharpnessTracker, UpdateSpectralNormTracker
+    from edge_of_stability.networks import MLP
+    from edge_of_stability.datasets import CIFAR10Dataset
+    from edge_of_stability.configs import *
+except ImportError:
+    raise ImportError("edge_of_stability module not found. Install it using 'pip install -e .' from the 'DL-project/edge_of_stability' directory.")
 from typing import Union, Literal, Annotated, Set
 import tyro
 from tyro.conf import arg
