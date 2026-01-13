@@ -3,7 +3,7 @@ from pathlib import Path
 src_path = Path(__file__).resolve().parents[1] 
 sys.path.append(str(src_path))
 
-from utils.airbench94_muon import CifarNet, train, MuonConfig, SGDConfig, AdamConfig
+from src.sharpness.airbench94_muon import CifarNet, train, MuonConfig, SGDConfig, AdamConfig
 import torch
 from tqdm import tqdm
 # import loss_landscapes
@@ -13,18 +13,11 @@ import numpy as np
 import wandb
 import time
 import argparse
-from utils.config import load_experiment_config, ExperimentConfig
-# from utils.compile import compile_for_training
 
-from utils.pyhessian_sharpness import pyhessian_sharpness
-from utils.sam_sharpness import get_sam_sharpness
-from utils.samlike_sharpness import get_samlike_sharpness
+from src.sharpness import pyhessian_sharpness, sam_sharpness, samlike_sharpness
+from src.sharpness.config import load_experiment_config, ExperimentConfig
 
-try:
-    from edge_of_stability.hessian import Hessian
-except ImportError:
-    raise ImportError("edge_of_stability module not found. Install it using 'pip install -e .' from the 'DL-project/edge_of_stability' directory.")
-
+from src.edge_of_stability.hessian import Hessian
 
 def niko_sharpness(model, data_batch):
     criterion = torch.nn.CrossEntropyLoss()
@@ -54,9 +47,8 @@ def train_and_log(experiment_name, model, optimizer_config, experiment_config: E
             "train_acc": training_accuracy,
             "val_acc": validation_accuracy,
             "gap": training_accuracy - validation_accuracy,
-            "sam_sharpness": get_sam_sharpness(model, metric_batch),
-            "niko_sharpness": niko_sharpness(model, metric_batch),
-            # "fisher_rao_norm": compute_fisher_rao_norm(model),
+            "sam_sharpness": sam_sharpness(model, metric_batch),
+            # "niko_sharpness": niko_sharpness(model, metric_batch)
         }
 
         if epoch == 16:

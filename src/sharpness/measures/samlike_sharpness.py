@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 
 @torch.no_grad()
-def get_samlike_sharpness(
+def samlike_sharpness(
     model: torch.nn.Module,
     loader,
     rho: float = 0.05,

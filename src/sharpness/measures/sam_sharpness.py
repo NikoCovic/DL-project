@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 
 @torch.no_grad()
-def get_sam_sharpness(
+def sam_sharpness(
     model: torch.nn.Module,
     data_batch,
     rho: float = 0.05,

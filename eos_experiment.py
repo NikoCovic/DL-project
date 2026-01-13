@@ -18,15 +18,12 @@ import json
 import matplotlib.pyplot as plt
 from dataclasses import asdict
 
-#try:
 from src.edge_of_stability.hessian import Hessian
 from src.edge_of_stability.trackers import SharpnessTracker, SpectralNormTracker, EffSharpnessTracker, EffSpectralNormTracker, UpdateSharpnessTracker, UpdateSpectralNormTracker
 from src.edge_of_stability.networks import MLP
 from src.edge_of_stability.datasets import CIFAR10Dataset
 from src.edge_of_stability.configs import *
 from src.edge_of_stability.utils import fetch_threshold
-#except ImportError:
-#    raise ImportError("edge_of_stability module not found. Install it using 'pip install -e .' from the 'DL-project/edge_of_stability' directory.")
 from typing import Union, Literal, Annotated, Set
 import tyro
 from tyro.conf import arg
