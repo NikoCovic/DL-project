@@ -15,10 +15,16 @@ class AdamPreconditioner(Preconditioner):
     def compute_p(self, optim:Adam, model:Module):
         params = [p for p in model.parameters() if p.requires_grad]
         self.P_dict = {}
+        eps = optim.param_groups[0]["eps"]
+        beta1, beta2 = optim.param_groups[0]["betas"]
         for p in params:
-            S = optim.state[p]["exp_avg_sq"].detach().clone()
+            v = optim.state[p]["exp_avg_sq"].detach().clone()
+            t = optim.state[p]["step"]
+            bias_correction1 = 1 - beta1**t
+            bias_correction2 = 1 - beta2**t
+
             self.P_dict[p] = {}
-            self.P_dict[p]["P"] = 1/(torch.sqrt(S) + 1e-8)
+            self.P_dict[p]["P"] = 1/((torch.sqrt(v/bias_correction2) + eps)*bias_correction1)
 
     def copy(self):
         preconditioner_new = AdamPreconditioner()

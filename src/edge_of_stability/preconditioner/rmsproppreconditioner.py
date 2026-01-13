@@ -4,15 +4,14 @@ from typing import Iterable
 from torch.nn.parameter import Parameter
 import torch
 from src.edge_of_stability.utils import *
-from torch.optim import Optimizer
 from torch.nn import Module
 
 
 class RMSpropPreconditioner(Preconditioner):
-    def __init__(self, optim:Optimizer=None, model:Module=None):
+    def __init__(self, optim:RMSprop=None, model:Module=None):
         super().__init__(optim, model)
 
-    def compute_p(self, optim:Optimizer, model:Module):
+    def compute_p(self, optim:RMSprop, model:Module):
         params = [p for p in model.parameters() if p.requires_grad]
         self.P_dict = {}
         for p in params:
