@@ -98,20 +98,27 @@ class Hessian:
         loss = self.loss_fn(self.model(self.inputs.to(self.device)), self.targets.to(self.device))
         grad = torch.autograd.grad(loss, params, create_graph=True)
 
+        if preconditioner is not None:
+            preconditioner_sqrt = preconditioner.pow(0.5)
+
         # Construct the operators
-        # Regular operator is PHv
+        # Regular operator is P^{1/2}HP^{1/2}v
         def mv(v:Iterable[Parameter]):
-            v = self.hessian_vector_product(v, grad, params, inplace=True)
             if preconditioner is not None:
-                v = preconditioner.dot(v, inplace=True)
+                v = preconditioner.dot(v, inplace=True)#preconditioner_sqrt.dot(v, inplace=True)
+            v = self.hessian_vector_product(v, grad, params, inplace=True)
+            #if preconditioner is not None:
+            #    v = preconditioner_sqrt.dot(v, inplace=True)
             return v
         operator = TorchLinearOperator(mv=mv, params=params)
 
-        # Transposed operator is (PH)^Tv = HPv
+        # Transposed operator is (P^{1/2}HP^{1/2})^Tv = P^{1/2}HP^{1/2}v
         def mv_transposed(v:Iterable[Parameter]):
+            #if preconditioner is not None:
+            #    v = preconditioner_sqrt.dot(v, inplace=True)
+            v = self.hessian_vector_product(v, grad, params, inplace=True)
             if preconditioner is not None:
                 v = preconditioner.dot(v, inplace=True)
-            v = self.hessian_vector_product(v, grad, params, inplace=True)
             return v
         operator_transposed = TorchLinearOperator(mv=mv_transposed, params=params)
 

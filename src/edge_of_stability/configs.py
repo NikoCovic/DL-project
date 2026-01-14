@@ -5,7 +5,7 @@ from typing import Union, Literal
 @dataclass
 class MuonConfig:   
     lr:float = 2e-3
-    momentum:float = 0.99
+    momentum:float = 0.9
     nesterov:bool = False
     weight_decay:float = 0
 
@@ -19,22 +19,22 @@ class RMSpropConfig:
 
 @dataclass
 class AdamConfig:
-    lr:float = 2e-5
-    betas:tuple[float, float] = (0.0, 0.99)
+    lr:float = 2e-3
+    betas:tuple[float, float] = (0.9, 0.999)
 
 
 @dataclass
 class MLPConfig:
-    width:int = 64
+    width:int = 200
     n_hidden:int = 2
-    activation:str = "gelu"
+    activation:str = "tanh"
     bias:bool = True
 
 
 @dataclass
 class CIFAR10Config:
-    n_classes:int = 4
-    n_samples_per_class:int = 250
+    n_classes:int = 10
+    n_samples_per_class:int = 500
     loss:Union[Literal["mse", "ce"]] = "mse"
 
 

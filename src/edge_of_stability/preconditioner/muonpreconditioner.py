@@ -5,6 +5,7 @@ from typing import Iterable
 from torch.nn.parameter import Parameter
 from torch.nn import Module
 from src.edge_of_stability.utils import *
+import math
 
 
 class MuonPreconditioner(Preconditioner):
@@ -23,13 +24,16 @@ class MuonPreconditioner(Preconditioner):
                 U, S, Vh = torch.linalg.svd(M)
                 # Make sure there are no 0 valued singular values
                 S = torch.clamp_min(S, 1e-12)
+                A, B = p.shape[:2]
+                lr_adjust = math.sqrt(max(1, A / B))
                 # Store the U and S matrices
                 self.P_dict[p]["U"] = U
                 self.P_dict[p]["S"] = S.pow(-1)
+                self.P_dict[p]["lr_adjust"] = lr_adjust
                 # Precompute the power
                 # P = (MM^T)^{-1/2} = (USV^TVSU^T)^{-1/2} = (US^2U^T)^{-1/2} = US^{-1}U^T
                 # P^p = US^{-p}U^T
-                self.P_dict[p]["P"] = U @ torch.diag(S) @ U.T
+                self.P_dict[p]["P"] = lr_adjust * (U @ torch.diag(S) @ U.T)
 
     def copy(self):
         preconditioner_new = MuonPreconditioner()
@@ -39,6 +43,7 @@ class MuonPreconditioner(Preconditioner):
             preconditioner_new.P_dict[p]["U"] = self.P_dict[p]["U"].detach().clone()
             preconditioner_new.P_dict[p]["S"] = self.P_dict[p]["S"].detach().clone()
             preconditioner_new.P_dict[p]["P"] = self.P_dict[p]["P"].detach().clone()
+            preconditioner_new.P_dict[p]["lr_adjust"] = self.P_dict[p]["lr_adjust"]
         return preconditioner_new
     
     def pow(self, p:float, inplace:bool=False):
@@ -46,9 +51,9 @@ class MuonPreconditioner(Preconditioner):
         for param in preconditioner_new.P_dict:
             U = preconditioner_new.P_dict[param]["U"]
             S = preconditioner_new.P_dict[param]["S"]
-            S_new = S.pow(p)
-            preconditioner_new.P_dict[param]["P"] = U @ torch.diag(S_new) @ U.T
-            preconditioner_new.P_dict[param]["S"] = S_new
+            lr_adjust = preconditioner_new.P_dict[param]["lr_adjust"]
+            S.pow_(p)
+            preconditioner_new.P_dict[param]["P"] = lr_adjust * (U @ torch.diag(S) @ U.T)
         return preconditioner_new
     
     def dot(self, v:Iterable[Parameter], inplace:bool=False):
