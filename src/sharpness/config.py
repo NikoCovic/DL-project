@@ -1,20 +1,34 @@
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import uuid
 from typing import Any
 from .airbench94_muon import CifarLoader
 
+
+@dataclass(frozen=True)
+class AdaptiveSharpnessConfig:
+    rho: float
+    eta: float
+    ascent_steps: int
+    ascent_lr: float
+    use_eval_mode: bool
+
 @dataclass(frozen=True)
 class ExperimentConfig:
     experiment_id: str
     wandb_project: str
+    wandb_mode: str
     number_gpus: int
     runs_per_gpu: int
     metric_batch: Any
+    metric_dataloader: str
+    metric_batch_size: int
+    hessian_num_batches: int
+    metrics: list[str]
     epochs_per_run: int
     dataset_path: Path
-
+    adaptive_sharpness: AdaptiveSharpnessConfig | None = None
 
 def load_experiment_config(path: str | Path) -> ExperimentConfig:
     cfg_path = Path(path)
@@ -33,12 +47,15 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
     runs_per_gpu = int(data.get("runs_per_gpu"))
     metric_batch_size = int(data.get("metric_batch_size"))
     hessian_num_batches = int(data.get("hessian_num_batches"))
+    metrics = list(data.get("metrics", []))
     epochs_per_run = int(data.get("epochs_per_run"))
+    wandb_mode = str(data["wandb_mode"])
 
     project_root = Path(__file__).resolve().parents[2]
     dataset_path = project_root / Path(data.get("dataset_path"))
 
-    if str(data.get("metric_dataloader")) == "AirBenchCifarLoader":
+    metric_dataloader = str(data.get("metric_dataloader"))
+    if metric_dataloader == "AirBenchCifarLoader":
         metric_batch = next(iter(CifarLoader(
             str(dataset_path),
             train=True,
@@ -58,12 +75,29 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
     if epochs_per_run <= 0:
         raise ValueError("config.epochs_per_run must be > 0")
 
+    adaptive_sharpness = None
+    if "adaptive_sharpness" in data:
+        adaptive_raw = data["adaptive_sharpness"]
+        adaptive_sharpness = AdaptiveSharpnessConfig(
+            rho=float(adaptive_raw["rho"]),
+            eta=float(adaptive_raw["eta"]),
+            ascent_steps=int(adaptive_raw["ascent_steps"]),
+            ascent_lr=float(adaptive_raw["ascent_lr"]),
+            use_eval_mode=bool(adaptive_raw["use_eval_mode"]),
+        )
+
     return ExperimentConfig(
         experiment_id=experiment_id,
         number_gpus=number_gpus,
         runs_per_gpu=runs_per_gpu,
         metric_batch=metric_batch,
+        metric_dataloader=metric_dataloader,
+        metric_batch_size=metric_batch_size,
+        hessian_num_batches=hessian_num_batches,
+        metrics=metrics,
         wandb_project=wandb_project,
         epochs_per_run=epochs_per_run,
         dataset_path=dataset_path,
+        adaptive_sharpness=adaptive_sharpness,
+        wandb_mode=wandb_mode,
     )
