@@ -41,6 +41,7 @@ def train_and_log(experiment_name, model, optimizer_config, experiment_config: E
     start = time.time()
 
     wandb_config = dict(optimizer_config.represent())
+    wandb_config["optimizer"] = wandb_config.pop("name")
     wandb_config.update(
         {
             "experiment_id": experiment_config.experiment_id,
