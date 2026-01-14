@@ -18,6 +18,7 @@ class RMSpropPreconditioner(Preconditioner):
             S = optim.state[p]["square_avg"].detach().clone()
             self.P_dict[p] = {}
             self.P_dict[p]["P"] = 1/(torch.sqrt(S) + 1e-8)
+            #print("Spectral norm of P ", torch.max(self.P_dict[p]["P"]))
 
     def copy(self):
         preconditioner_new = RMSpropPreconditioner()
@@ -38,3 +39,15 @@ class RMSpropPreconditioner(Preconditioner):
         for p_v, p in zip(v, self.P_dict):
             p_v.data.mul_(self.P_dict[p]["P"])
         return v
+    
+    def mul(self, c:float, inplace:bool=False) -> "RMSpropPreconditioner":
+        p = self if inplace else self.copy()
+        for p in p.P_dict:
+            p.P_dict[p]["P"].mul_(c)
+        return p
+    
+    def frobenius_norm(self):
+        val = 0
+        for p in self.P_dict:
+            val += torch.sum(self.P_dict[p]["P"].pow(2)).sqrt()
+        return val.cpu().item()

@@ -21,19 +21,29 @@ class MuonPreconditioner(Preconditioner):
                 # Extract the momentum M_t
                 M = optim.state[p]["momentum_buffer"].detach().clone()
                 # Compute the SVD of M = U Sigma V^T
-                U, S, Vh = torch.linalg.svd(M)
+                U, S, Vh = torch.linalg.svd(M.type(torch.float64))
+                # Compute a singular value threshold
+                #s_thresh = 1e-3#0.05 * torch.median(S)
+                #S = S[S > s_thresh]
+                #U = U[:, :len(S)]
+                S = S.type(M.dtype)
+                U = U.type(M.dtype)
+                #print("S", S, "s_thresh", s_thresh)
                 # Make sure there are no 0 valued singular values
-                S = torch.clamp_min(S, 1e-12)
+                #S = S + 1e-6#torch.clamp_min(S, 1e-3)
+                S = S.pow(-1)
+                #print(torch.min(S))
                 A, B = p.shape[:2]
                 lr_adjust = math.sqrt(max(1, A / B))
                 # Store the U and S matrices
                 self.P_dict[p]["U"] = U
-                self.P_dict[p]["S"] = S.pow(-1)
+                self.P_dict[p]["S"] = S
                 self.P_dict[p]["lr_adjust"] = lr_adjust
                 # Precompute the power
                 # P = (MM^T)^{-1/2} = (USV^TVSU^T)^{-1/2} = (US^2U^T)^{-1/2} = US^{-1}U^T
                 # P^p = US^{-p}U^T
                 self.P_dict[p]["P"] = lr_adjust * (U @ torch.diag(S) @ U.T)
+                #print("Spectral norm of P ", torch.max(S))
 
     def copy(self):
         preconditioner_new = MuonPreconditioner()
@@ -61,3 +71,15 @@ class MuonPreconditioner(Preconditioner):
         for p_v, p in zip(v, self.P_dict):
             p_v.data = self.P_dict[p]["P"] @ p_v
         return v
+    
+    def frobenius_norm(self):
+        val = 0
+        for p in self.P_dict:
+            val += torch.sum(self.P_dict[p]["P"].pow(2)).sqrt()
+        return val.cpu().item()
+    
+    def mul(self, c:float, inplace:bool=False) -> "MuonPreconditioner":
+        p = self if inplace else self.copy()
+        for p in p.P_dict:
+            p.P_dict[p]["P"].mul_(c)
+        return p

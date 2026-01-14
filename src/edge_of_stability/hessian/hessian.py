@@ -83,7 +83,8 @@ class Hessian:
             PsqHPsqv = HPsqv if preconditioner is None else preconditioner_sqrt.dot(HPsqv)
             return PsqHPsqv
         operator = TorchLinearOperator(mv, params)
-        eigenvalues, eigenvectors = power_iteration_eigenvalues(operator, **algo_kwargs)
+        stability_constant = preconditioner.frobenius_norm() if preconditioner is not None else None
+        eigenvalues, eigenvectors = power_iteration_eigenvalues(operator, stability_constant=stability_constant, **algo_kwargs)
         
         self._set_model_params(model_params)
 

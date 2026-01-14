@@ -187,3 +187,18 @@ $$
 
 \end{aligned}
 $$
+
+$$
+\begin{aligned}
+
+D^pv &= \left( \bigoplus_{i=1}^L (I \otimes P_i) \right) v \\
+
+&= \bigoplus_{i=1}^L(I \otimes P_i)^pv_i \\
+
+&= \bigoplus_{i=1}^L(I \otimes P^p_i)v_i \\
+
+&= \bigoplus_{i=1}^L\text{vec}(P^p_iV_i) \\
+
+
+\end{aligned}
+$$

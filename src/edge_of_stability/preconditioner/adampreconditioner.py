@@ -25,6 +25,7 @@ class AdamPreconditioner(Preconditioner):
 
             self.P_dict[p] = {}
             self.P_dict[p]["P"] = 1/((torch.sqrt(v/bias_correction2) + eps)*bias_correction1)
+            #print("Spectral norm of P ", torch.max(self.P_dict[p]["P"]))
 
     def copy(self):
         preconditioner_new = AdamPreconditioner()
@@ -45,3 +46,15 @@ class AdamPreconditioner(Preconditioner):
         for p_v, p in zip(v, self.P_dict):
             p_v.data.mul_(self.P_dict[p]["P"])
         return v
+    
+    def frobenius_norm(self):
+        val = 0
+        for p in self.P_dict:
+            val += torch.sum(self.P_dict[p]["P"].pow(2)).sqrt()
+        return val.cpu().item()
+    
+    def mul(self, c:float, inplace:bool=False) -> "AdamPreconditioner":
+        p = self if inplace else self.copy()
+        for p in p.P_dict:
+            p.P_dict[p]["P"].mul_(c)
+        return p

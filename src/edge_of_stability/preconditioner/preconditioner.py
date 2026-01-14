@@ -20,3 +20,9 @@ class Preconditioner:
 
     def dot(self, v:Iterable[Parameter], inplace:bool=False) -> Iterable[Parameter]:
         pass
+
+    def mul(self, c:float, inplace:bool=False) -> "Preconditioner":
+        pass
+
+    def frobenius_norm(self) -> float:
+        pass

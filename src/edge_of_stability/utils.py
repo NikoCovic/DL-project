@@ -61,7 +61,7 @@ class TorchLinearOperator():
         return self.mv(v)
 
 
-def power_iteration_eigenvalues(operator:TorchLinearOperator, top_n:int=1, max_iter:int=200, tol:float=1e-8):
+def power_iteration_eigenvalues(operator:TorchLinearOperator, stability_constant:float=None, top_n:int=1, max_iter:int=200, tol:float=1e-8):
     eigenvectors = []
     eigenvalues = []
 
@@ -78,9 +78,13 @@ def power_iteration_eigenvalues(operator:TorchLinearOperator, top_n:int=1, max_i
             
             # Compute Mv
             Mv = operator.dot(v, inplace=False)
+            if stability_constant is not None:
+                Mv = params_scale(Mv, 1/stability_constant, inplace=True)
 
             # Compute the eigenvalue
             temp_eigval = params_dot_product(v, Mv).cpu().item()
+            if stability_constant is not None:
+                temp_eigval = stability_constant * temp_eigval
 
             # Compute the eigenvector by normalizing Mv
             v = params_normalize(Mv, inplace=True)
