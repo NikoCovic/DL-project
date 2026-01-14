@@ -11,4 +11,4 @@ set -euo pipefail
 nvidia-smi
 
 # Run the script
-uv run optima/main.py --config optima/configs/student-optim_all-cifar.json
+uv run sharpness_experiment.py --config sharpness_configs/student-optim_all-cifar.json

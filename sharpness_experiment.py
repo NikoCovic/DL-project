@@ -5,6 +5,7 @@ sys.path.append(str(src_path))
 
 from src.sharpness.airbench94_muon import CifarNet, train, NormalizedMuonConfig, VanillaMuonConfig, SGDConfig, AdamConfig
 import torch
+import torch.nn.functional as F
 from tqdm import tqdm
 # import loss_landscapes
 # import loss_landscapes.metrics as metrics
@@ -14,7 +15,7 @@ import wandb
 import time
 import argparse
 
-from src.sharpness import pyhessian_sharpness, sam_sharpness, samlike_sharpness
+from src.sharpness import pyhessian_sharpness, sam_sharpness, samlike_sharpness, adaptive_sharpness
 from src.sharpness.config import load_experiment_config, ExperimentConfig
 from src.sharpness.wandb_sync import sync_all_runs_parallel
 
@@ -38,12 +39,39 @@ def train_and_log(experiment_name, model, optimizer_config, experiment_config: E
     inputs, targets = experiment_config.metric_batch
 
     start = time.time()
+
+    wandb_config = dict(optimizer_config.represent())
+    wandb_config["optimizer"] = wandb_config.pop("name")
+    wandb_config.update(
+        {
+            "experiment_id": experiment_config.experiment_id,
+            "dataset_path": str(experiment_config.dataset_path),
+            "epochs_per_run": experiment_config.epochs_per_run,
+            "number_gpus": experiment_config.number_gpus,
+            "runs_per_gpu": experiment_config.runs_per_gpu,
+            "metric_dataloader": experiment_config.metric_dataloader,
+            "metric_batch_size": experiment_config.metric_batch_size,
+            "hessian_num_batches": experiment_config.hessian_num_batches,
+            "metrics": experiment_config.metrics,
+        }
+    )
+    if experiment_config.adaptive_sharpness is not None:
+        wandb_config.update(
+            {
+                "adaptive_sharpness.rho": experiment_config.adaptive_sharpness.rho,
+                "adaptive_sharpness.eta": experiment_config.adaptive_sharpness.eta,
+                "adaptive_sharpness.ascent_steps": experiment_config.adaptive_sharpness.ascent_steps,
+                "adaptive_sharpness.ascent_lr": experiment_config.adaptive_sharpness.ascent_lr,
+                "adaptive_sharpness.use_eval_mode": experiment_config.adaptive_sharpness.use_eval_mode,
+            }
+        )
+
     run = wandb.init(
         project=experiment_config.wandb_project,
         group=experiment_name,
-        config=optimizer_config.represent(),
+        config=wandb_config,
         reinit=True,
-        mode="offline",
+        mode=experiment_config.wandb_mode,
         # settings=wandb.Settings(
         #     _disable_stats=True,      # Disable system hardware metrics
         #     _disable_meta=True,       # Disable system metadata collection
@@ -54,7 +82,7 @@ def train_and_log(experiment_name, model, optimizer_config, experiment_config: E
     # print(f"CUSTOM: Run `wandb sync {str(Path(run.dir).parent)}` to upload offline logs.")
     middle = time.time()
     
-    def callback_fn(epoch, model, training_accuracy, validation_accuracy):
+    def log_epoch_metrics(epoch, model, training_accuracy, validation_accuracy):
         model.eval()
 
         device = next(model.parameters()).device
@@ -73,7 +101,16 @@ def train_and_log(experiment_name, model, optimizer_config, experiment_config: E
         }
 
         if epoch > 0:
-            log["hessian"], log["relative_hessian"] = pyhessian_sharpness(model, metric_batch)
+            # --- LOG SHARPNESS ---
+            if "pyhessian_sharpness" in experiment_config.metrics:
+                log["hessian"], log["relative_hessian"] = pyhessian_sharpness(model, metric_batch)
+            if "adaptive_sharpness" in experiment_config.metrics:
+                log["adaptive_sharpness"] = adaptive_sharpness(
+                    model,
+                    F.cross_entropy,
+                    metric_batch,
+                    experiment_config.adaptive_sharpness,
+                )
             # print(f"Hessian Top Eigenvalue: {log['hessian']}, Relative Hessian: {log['relative_hessian']}")
         
         run.log(log)
@@ -87,7 +124,7 @@ def train_and_log(experiment_name, model, optimizer_config, experiment_config: E
         model,
         experiment_config=experiment_config,
         optimizer_config=optimizer_config,
-        callback=callback_fn,
+        log_epoch_metrics_callback=log_epoch_metrics,
         epochs=experiment_config.epochs_per_run,
     )
 
@@ -187,8 +224,8 @@ def main():
     experiment_name = experiment_config.experiment_id
     # experiment_name = "hessian-every-epoch"
 
-    print("Performing Warmup...")
-    train_distributed("warmup", gpus, 1, NormalizedMuonConfig(), experiment_config)
+    # print("Performing Warmup...")
+    # train_distributed("warmup", gpus, 1, NormalizedMuonConfig(), experiment_config)
 
     run_dirs = []
 

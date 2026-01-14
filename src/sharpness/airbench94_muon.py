@@ -535,11 +535,7 @@ def evaluate(model, loader, tta_level=0):
 #                Training                  #
 ############################################
 
-def train(run, model, experiment_config, optimizer_config=None, epochs=8, verbose=False, callback=None):
-    if optimizer_config is None:
-        optimizer_config = NormalizedMuonConfig()
-        
-    
+def train(run, model, experiment_config, optimizer_config, epochs=8, verbose=False, log_epoch_metrics_callback=None):
     batch_size = optimizer_config.batch_size
     bias_lr = optimizer_config.bias_lr
     head_lr = optimizer_config.head_lr
@@ -583,8 +579,8 @@ def train(run, model, experiment_config, optimizer_config=None, epochs=8, verbos
     model.init_whiten(train_images)
     stop_timer()
 
-    if callback is not None:
-        callback(0, model, 0, 0)
+    if log_epoch_metrics_callback is not None:
+        log_epoch_metrics_callback(0, model, 0, 0)
 
     epochs = ceil(total_train_steps / len(train_loader))
     for epoch in range(epochs):
@@ -628,8 +624,8 @@ def train(run, model, experiment_config, optimizer_config=None, epochs=8, verbos
 
         val_acc = evaluate(model, test_loader, tta_level=0)
 
-        if callback is not None:
-            callback(epoch + 1, model, train_acc, val_acc)
+        if log_epoch_metrics_callback is not None:
+            log_epoch_metrics_callback(epoch + 1, model, train_acc, val_acc)
 
         if verbose:
             print(f"Run {run} | Epoch {epoch+1}/{epochs} | Train Acc: {train_acc:.4f} | Val Acc: {val_acc:.4f}")
