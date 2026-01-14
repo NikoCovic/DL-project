@@ -56,34 +56,20 @@ def adaptive_sharpness_implementation(
     w0: Dict[torch.nn.Parameter, Tensor] = {p: p.detach().clone() for p in params}
 
     with torch.enable_grad():
-        # base loss L(w)
+        # base loss L(w) and initial gradient
         model.zero_grad(set_to_none=True)
         base_loss = loss_fn(model(x), y)
+        base_loss.backward()
+
+        best_loss = base_loss.detach()
 
         # initialize Ẽ (same shapes as params), start at 0
         e_tilde: Dict[torch.nn.Parameter, Tensor] = {
             p: torch.zeros_like(p, memory_format=torch.preserve_format) for p in params
         }
 
-        best_loss = base_loss.detach()
-
-        for _ in range(ascent_steps):
-            # apply current perturbation: w <- w0 + T_w * Ẽ
-            for p in params:
-                Tw = w0[p].abs().add(eta)                 # T_w fixed at original w (as in definition)
-                p.data.copy_(w0[p] + Tw * e_tilde[p])     # w + ε
-
-            # compute loss at perturbed weights
-            model.zero_grad(set_to_none=True)
-            loss = loss_fn(model(x), y)
-            loss.backward()
-
-            # track best loss encountered
-            if loss.detach() > best_loss:
-                best_loss = loss.detach()
-
-            # gradient ascent step on Ẽ
-            # d/dẼ loss(w0 + T_w*Ẽ) = T_w ⊙ (d/dw loss)
+        for i in range(ascent_steps):
+            # gradient ascent step on Ẽ: d/dẼ loss(w0 + T_w*Ẽ) = T_w ⊙ (d/dw loss)
             for p in params:
                 if p.grad is None:
                     continue
@@ -102,9 +88,29 @@ def adaptive_sharpness_implementation(
                 for p in params:
                     e_tilde[p].mul_(scale)
 
+            # apply current perturbation: w <- w0 + T_w * Ẽ
+            for p in params:
+                Tw = w0[p].abs().add(eta)
+                p.data.copy_(w0[p] + Tw * e_tilde[p])
+
+            # compute loss at perturbed weights
+            model.zero_grad(set_to_none=True)
+            loss = loss_fn(model(x), y)
+
+            # track best loss encountered
+            if loss.detach() > best_loss:
+                best_loss = loss.detach()
+
+            # compute gradient for next step (if needed)
+            if i < ascent_steps - 1:
+                loss.backward()
+
         # restore original weights
         for p in params:
             p.data.copy_(w0[p])
+        
+        # clear gradients
+        model.zero_grad(set_to_none=True)
 
     if use_eval_mode and was_training:
         model.train()
