@@ -223,8 +223,8 @@ def main():
     experiment_name = experiment_config.experiment_id
     # experiment_name = "hessian-every-epoch"
 
-    print("Performing Warmup...")
-    train_distributed("warmup", gpus, 1, NormalizedMuonConfig(), experiment_config)
+    # print("Performing Warmup...")
+    # train_distributed("warmup", gpus, 1, NormalizedMuonConfig(), experiment_config)
 
     run_dirs = []
 

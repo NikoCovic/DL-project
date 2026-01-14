@@ -535,11 +535,7 @@ def evaluate(model, loader, tta_level=0):
 #                Training                  #
 ############################################
 
-def train(run, model, experiment_config, optimizer_config=None, epochs=8, verbose=False, log_epoch_metrics_callback=None):
-    if optimizer_config is None:
-        optimizer_config = NormalizedMuonConfig()
-        
-    
+def train(run, model, experiment_config, optimizer_config, epochs=8, verbose=False, log_epoch_metrics_callback=None):
     batch_size = optimizer_config.batch_size
     bias_lr = optimizer_config.bias_lr
     head_lr = optimizer_config.head_lr
