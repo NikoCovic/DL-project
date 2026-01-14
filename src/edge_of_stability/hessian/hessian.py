@@ -23,7 +23,7 @@ class Hessian:
 
     def commutativity_measure(self, preconditioner:Preconditioner, **algo_kwargs):
         # Store the current parameters
-        model_params = self._set_model_params(self.params)
+        # model_params = self._set_model_params(self.params)
 
         # Compute loss
         loss = self.loss_fn(self.model(self.inputs.to(self.device)), self.targets.to(self.device))
@@ -56,7 +56,7 @@ class Hessian:
 
         s = spectral_norm(operator, operator_transformed, **algo_kwargs)
 
-        self._set_model_params(model_params)
+        # self._set_model_params(model_params)
 
         return s
 

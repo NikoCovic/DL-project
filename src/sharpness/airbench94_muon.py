@@ -22,7 +22,7 @@ torch.backends.cudnn.benchmark = True
 #############################################
 
 @torch.compile
-def zeropower_via_newtonschulz5(G, steps=3, eps=1e-7):
+def zeropower_via_newtonschulz5(G, steps=5, eps=1e-7):
     """
     Newton-Schulz iteration to compute the zeroth power / orthogonalization of G. We opt to use a
     quintic iteration whose coefficients are selected to maximize the slope at zero. For the purpose
@@ -46,7 +46,43 @@ def zeropower_via_newtonschulz5(G, steps=3, eps=1e-7):
         X = X.T
     return X
 
-class Muon(torch.optim.Optimizer):
+class VanillaMuon(torch.optim.Optimizer):
+    def __init__(self, params, lr=1e-3, momentum=0.0, weight_decay=2e-6, nesterov=False):
+        if lr < 0.0:
+            raise ValueError(f"Invalid learning rate: {lr}")
+        if momentum < 0.0:
+            raise ValueError(f"Invalid momentum value: {momentum}")
+        if nesterov and momentum <= 0.0:
+            raise ValueError("Nesterov momentum requires a momentum")
+        defaults = dict(lr=lr, momentum=momentum, weight_decay=weight_decay, nesterov=nesterov)
+        super().__init__(params, defaults)
+
+    def step(self):
+        for group in self.param_groups:
+            lr = group["lr"]
+            momentum = group["momentum"]
+            weight_decay = group["weight_decay"]
+
+            for p in group["params"]:
+                g = p.grad
+                if g is None:
+                    continue
+                state = self.state[p]
+
+                if "momentum_buffer" not in state.keys():
+                    state["momentum_buffer"] = torch.zeros_like(g)
+                buf = state["momentum_buffer"]
+                buf.mul_(momentum).add_(g)
+                g = g.add(buf, alpha=momentum) if group["nesterov"] else buf
+
+                if weight_decay > 0:
+                    p.data.mul_(1 - lr * weight_decay)
+
+                update = zeropower_via_newtonschulz5(g.reshape(len(g), -1)).view(g.shape) # whiten the update
+                p.data.add_(update, alpha=-lr) # take a step 
+
+
+class NormalizedMuon(torch.optim.Optimizer):
     def __init__(self, params, lr=1e-3, momentum=0.0, nesterov=False):
         if lr < 0.0:
             raise ValueError(f"Invalid learning rate: {lr}")
@@ -104,11 +140,11 @@ class OptimizerConfig:
             "wd_factor": self.wd / self.batch_size,
         }
 
-class MuonConfig(OptimizerConfig):
+class NormalizedMuonConfig(OptimizerConfig):
     def __init__(self, batch_size=2000, bias_lr=0.053, head_lr=0.67, wd_factor=2e-6,
                  muon_lr=0.24, muon_momentum=0.6, muon_nesterov=True,
                  sgd_momentum=0.85, sgd_nesterov=True):
-        super().__init__('Muon', batch_size, bias_lr, head_lr, wd_factor)
+        super().__init__('NormalizedMuon', batch_size, bias_lr, head_lr, wd_factor)
         self.muon_lr = muon_lr
         self.muon_momentum = muon_momentum
         self.muon_nesterov = muon_nesterov
@@ -127,7 +163,46 @@ class MuonConfig(OptimizerConfig):
         
         optimizer1 = torch.optim.SGD(param_configs, momentum=self.sgd_momentum, 
                                      nesterov=self.sgd_nesterov, fused=True)
-        optimizer2 = Muon(filter_params, lr=self.muon_lr, momentum=self.muon_momentum, 
+        optimizer2 = NormalizedMuon(filter_params, lr=self.muon_lr, momentum=self.muon_momentum, 
+                         nesterov=self.muon_nesterov)
+        
+        return [optimizer1, optimizer2]
+    
+    def represent(self):
+        base_repr = super().represent()
+        base_repr.update({
+            "muon_lr": self.muon_lr,
+            "muon_momentum": self.muon_momentum,
+            "muon_nesterov": self.muon_nesterov,
+            "sgd_momentum": self.sgd_momentum,
+            "sgd_nesterov": self.sgd_nesterov,
+        })
+        return base_repr
+    
+class VanillaMuonConfig(OptimizerConfig):
+    def __init__(self, batch_size=2000, bias_lr=0.08873, head_lr=0.8226, wd_factor=7.553e-7,
+                 muon_lr=0.24, muon_momentum=0.6, muon_nesterov=True,
+                 sgd_momentum=0.85, sgd_nesterov=True):
+        super().__init__('VanillaMuon', batch_size, bias_lr, head_lr, wd_factor)
+        self.muon_lr = muon_lr
+        self.muon_momentum = muon_momentum
+        self.muon_nesterov = muon_nesterov
+        self.sgd_momentum = sgd_momentum
+        self.sgd_nesterov = sgd_nesterov
+    
+    def create_optimizers(self, model):
+        filter_params = [p for p in model.parameters() if len(p.shape) == 4 and p.requires_grad]
+        norm_biases = [p for n, p in model.named_parameters() if "norm" in n and p.requires_grad]
+        
+        param_configs = [
+            dict(params=[model.whiten.bias], lr=self.bias_lr, weight_decay=self.wd/self.bias_lr),
+            dict(params=norm_biases, lr=self.bias_lr, weight_decay=self.wd/self.bias_lr),
+            dict(params=[model.head.weight], lr=self.head_lr, weight_decay=self.wd/self.head_lr)
+        ]
+        
+        optimizer1 = torch.optim.SGD(param_configs, momentum=self.sgd_momentum, 
+                                     nesterov=self.sgd_nesterov, fused=True)
+        optimizer2 = VanillaMuon(filter_params, lr=self.muon_lr, momentum=self.muon_momentum, weight_decay=self.wd/self.muon_lr,
                          nesterov=self.muon_nesterov)
         
         return [optimizer1, optimizer2]
@@ -144,7 +219,7 @@ class MuonConfig(OptimizerConfig):
         return base_repr
 
 class SGDConfig(OptimizerConfig):
-    def __init__(self, batch_size=2000, filter_lr=0.4756, head_lr=0.8182, bias_lr=0.01141, momentum=0.9187, wd_factor=1e-5, nesterov=True):
+    def __init__(self, batch_size=2000, filter_lr=0.4756, head_lr=0.8182, bias_lr=0.01141, momentum=0.9187, wd_factor=1e-6, nesterov=True):
         super().__init__('SGD', batch_size, bias_lr, head_lr, wd_factor)
         self.filter_lr = filter_lr
         self.momentum = momentum
@@ -462,7 +537,7 @@ def evaluate(model, loader, tta_level=0):
 
 def train(run, model, experiment_config, optimizer_config=None, epochs=8, verbose=False, callback=None):
     if optimizer_config is None:
-        optimizer_config = MuonConfig()
+        optimizer_config = NormalizedMuonConfig()
         
     
     batch_size = optimizer_config.batch_size
@@ -573,8 +648,8 @@ def train(run, model, experiment_config, optimizer_config=None, epochs=8, verbos
 
     return tta_val_acc
 
-def train_and_print(model, optimizer_config, name, epochs=8, runs=10, verbose=False):
-    accs = torch.tensor([train(run, model, optimizer_config, epochs=epochs, verbose=verbose) for run in range(runs)])
+def train_and_print(model, experiment_config, optimizer_config, name, epochs=8, runs=10, verbose=False):
+    accs = torch.tensor([train(name, model, experiment_config, optimizer_config, epochs=epochs, verbose=verbose) for run in range(runs)])
     print(f"\n{name} - Mean: {accs.mean():.4f}    Std: {accs.std():.4f}")
     print(accs.tolist())
 
@@ -582,40 +657,42 @@ if __name__ == "__main__":
     device = "cuda"
     model = CifarNet().to(device).to(memory_format=torch.channels_last)
     model = torch.compile(model, mode="max-autotune")
+    
+    class ExperimentConfig:
+        def __init__(self):
+            self.dataset_path = "../../data/cifar10"
+    experiment_config = ExperimentConfig()
 
     # 1. Warmup
     print("Performing Warmup...")
-    train("Warmup", model)
+    train("Warmup", model, experiment_config)
 
     epocs = 8
     runs = 50
 
     # 2. Test Muon
-    # train_and_print(model, MuonConfig(), "Muon", epochs=epocs, runs=runs)
+    train_and_print(model, experiment_config, NormalizedMuonConfig(), "NormalizedMuon", epochs=epocs, runs=runs)
+    train_and_print(model, experiment_config, VanillaMuonConfig(), "VanillaMuon", epochs=epocs, runs=runs)
 
     # tuned_muon_config_8 = MuonConfig(muon_lr=0.2574, head_lr=0.7136, muon_momentum=0.6576, bias_lr=0.0853, sgd_momentum=0.8802)
-    # train_and_print(model, tuned_muon_config_8, "Tuned Muon 8", epochs=epocs, runs=runs)
+    # train_and_print(model, experiment_config, tuned_muon_config_8, "Tuned Muon 8", epochs=epocs, runs=runs)
 
     # tuned_muon_config_16 = MuonConfig(muon_lr=0.3656, head_lr=0.9226, muon_momentum=0.1395, bias_lr=0.05492, sgd_momentum=0.4507)
-    # train_and_print(model, tuned_muon_config_16, "Tuned Muon 16", epochs=epocs, runs=runs)
+    # train_and_print(model, experiment_config, tuned_muon_config_16, "Tuned Muon 16", epochs=epocs, runs=runs)
 
     # 3. Test SGD
-    train_and_print(model, SGDConfig(), "SGD", epochs=epocs, runs=runs)
+    # train_and_print(model, experiment_config, SGDConfig(), "SGD", epochs=epocs, runs=runs)
 
-    train_and_print(model, SGDConfig(), "SGD2", epochs=epocs, runs=runs)
+    # tuned_sgd_config_8 = SGDConfig(filter_lr=0.4756, head_lr=0.8182, bias_lr=0.01141, momentum=0.9187)
+    # train_and_print(model, experiment_config, tuned_sgd_config_8, "Tuned SGD 8", epochs=epocs, runs=runs)
 
-    tuned_sgd_config_8 = SGDConfig(filter_lr=0.4756, head_lr=0.8182, bias_lr=0.01141, momentum=0.9187)
-    train_and_print(model, tuned_sgd_config_8, "Tuned SGD 8", epochs=epocs, runs=runs)
-
-    tuned_sgd_config_16 = SGDConfig(filter_lr=0.2836, head_lr=0.7920, bias_lr=0.01435, momentum=0.8926)
-    train_and_print(model, tuned_sgd_config_16, "Tuned SGD 16", epochs=epocs, runs=runs)
+    # tuned_sgd_config_16 = SGDConfig(filter_lr=0.2836, head_lr=0.7920, bias_lr=0.01435, momentum=0.8926)
+    # train_and_print(model, experiment_config, tuned_sgd_config_16, "Tuned SGD 16", epochs=epocs, runs=runs)
     
     # 4. Test Adam
-    # train_and_print(model, AdamConfig(), "Adam", epochs=epocs, runs=runs)
+    # train_and_print(model, experiment_config, AdamConfig(), "Adam", epochs=epocs, runs=runs)
 
     # tuned_adam_config_8 = AdamConfig(filter_lr=0.004696, head_lr=0.8013, bias_lr=0.09306, beta1=0.8244, beta2=0.9956)
-    # train_and_print(model, tuned_adam_config_8, "Tuned Adam 8", epochs=epocs, runs=runs)
-
+    # train_and_print(model, experiment_config, tuned_adam_config_8, "Tuned Adam 8", epochs=epocs, runs=runs)
     # tuned_adam_config_16 = AdamConfig(filter_lr=0.008248, head_lr=0.9818, bias_lr=0.03983, beta1=0.8278, beta2=0.9982)
-    # train_and_print(model, tuned_adam_config_16, "Tuned Adam 16", epochs=epocs, runs=runs)
-
+    # train_and_print(model, experiment_config, tuned_adam_config_16, "Tuned Adam 16", epochs=epocs, runs=runs)
