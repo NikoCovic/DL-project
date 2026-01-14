@@ -3,8 +3,9 @@ from pathlib import Path
 src_path = Path(__file__).resolve().parents[1] 
 sys.path.append(str(src_path))
 
-from src.sharpness.airbench94_muon import CifarNet, train, MuonConfig, SGDConfig, AdamConfig
+from src.sharpness.airbench94_muon import CifarNet, train, NormalizedMuonConfig, VanillaMuonConfig, SGDConfig, AdamConfig
 import torch
+import torch.nn.functional as F
 from tqdm import tqdm
 # import loss_landscapes
 # import loss_landscapes.metrics as metrics
@@ -14,90 +15,124 @@ import wandb
 import time
 import argparse
 
-from src.sharpness import pyhessian_sharpness, sam_sharpness, samlike_sharpness
+from src.sharpness import pyhessian_sharpness, sam_sharpness, samlike_sharpness, adaptive_sharpness
 from src.sharpness.config import load_experiment_config, ExperimentConfig
+from src.sharpness.wandb_sync import sync_all_runs_parallel
 
-from src.edge_of_stability.hessian import Hessian
+# from src.edge_of_stability.hessian import Hessian
 
-def niko_sharpness(model, data_batch):
-    criterion = torch.nn.CrossEntropyLoss()
-    device = next(model.parameters()).device
-    hessian = Hessian(model, data_batch, criterion, device=device)
-    es, _ = hessian.eigenvalues()
-    e = es[0]
-    return e
+# def niko_sharpness(model, data_batch):
+#     criterion = torch.nn.CrossEntropyLoss()
+#     device = next(model.parameters()).device
+#     hessian = Hessian(model, data_batch, criterion, device=device)
+#     hessian.update_params()
+#     _, es = hessian.eigenvalues()
+#     e = es[0]
+#     print(f"Niko Sharpness (Top Hessian Eigenvalue): {e}")
+#     return e
 
 
 def train_and_log(experiment_name, model, optimizer_config, experiment_config: ExperimentConfig):
     logs = []
+    run_dirs = []
 
     inputs, targets = experiment_config.metric_batch
+
+    start = time.time()
+
+    wandb_config = optimizer_config.represent()
+    wandb_config.update(experiment_config.represent())
+
+    run = wandb.init(
+        project=experiment_config.wandb_project,
+        group=experiment_name,
+        config=wandb_config,
+        reinit=True,
+        mode=experiment_config.wandb_mode,
+        # settings=wandb.Settings(
+        #     _disable_stats=True,      # Disable system hardware metrics
+        #     _disable_meta=True,       # Disable system metadata collection
+        #     console="off"             # Disable console logging/wrapping
+        # )
+    )
+    run_dirs.append(str(Path(run.dir).parent))  # Store parent dir for later wandb sync if in offline mode
+    middle = time.time()
     
-    def callback_fn(epoch, model, training_accuracy, validation_accuracy):
+    def log_epoch_metrics(epoch, model, training_accuracy, validation_accuracy):
         model.eval()
 
         device = next(model.parameters()).device
         metric_batch = (inputs.to(device), targets.to(device))
 
         # Free any stale cached blocks before expensive higher-order/autograd workloads.
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
 
         log = {
             "epoch": epoch,
             "train_acc": training_accuracy,
             "val_acc": validation_accuracy,
             "gap": training_accuracy - validation_accuracy,
-            "sam_sharpness": sam_sharpness(model, metric_batch),
-            # "niko_sharpness": niko_sharpness(model, metric_batch)
         }
 
-        if epoch == 16:
-            # print(f"Calculating Hessian for epoch {epoch}...")
-            log["hessian"], log["relative_hessian"] = pyhessian_sharpness(model, metric_batch)
+        if epoch > 0:
+            if "pyhessian_sharpness" in experiment_config.metrics:
+                log["hessian"], log["relative_hessian"] = pyhessian_sharpness(model, metric_batch)
+            
+            if "adaptive_sharpness" in experiment_config.metrics:
+                log["adaptive_sharpness"] = adaptive_sharpness(
+                    model,
+                    F.cross_entropy,
+                    metric_batch,
+                    experiment_config.adaptive_sharpness,
+                )
+            
+            if "sam_sharpness" in experiment_config.metrics:
+                log["sam_sharpness"] = sam_sharpness(model, metric_batch)
+
+            # if "niko_sharpness" in experiment_config.metrics:
+            #     log["niko_sharpness"] = niko_sharpness(model, metric_batch)
+            
         
-        wandb.log(log)
+        run.log(log)
         logs.append(log)
 
         # print(f"[{name}] Epoch {epoch}  SAM Sharpness: {sam_sharp}  Hessian Top Eigenvalue: {hess_sharp}")
         model.train()
-    
-    start = time.time()
-    wandb.init(project=experiment_config.wandb_project, group=experiment_name, config=optimizer_config.represent())
-    middle = time.time()
 
     final_acc = train(
         "run",
         model,
         experiment_config=experiment_config,
         optimizer_config=optimizer_config,
-        callback=callback_fn,
+        log_epoch_metrics_callback=log_epoch_metrics,
         epochs=experiment_config.epochs_per_run,
     )
 
     post = time.time()
-    wandb.log({"tta_val_accuracy": final_acc, "tta_gap": logs[-1]["val_acc"] - final_acc})
-    wandb.finish()
+    run.log({"tta_val_accuracy": final_acc, "tta_gap": logs[-1]["val_acc"] - final_acc})
+    run.finish()
     end = time.time()
 
     wasted_time = (middle - start) + (end - post)
     
     print(f"Wasted Time: {wasted_time:.2f}s of {end - start:.2f}s total ({100.0 * wasted_time / (end - start):.2f}%)")
 
-    return final_acc, logs
+    return final_acc, logs, run_dirs
 
 
 def worker(experiment_name, gpu_id, runs_per_gpu, optimizer_config, experiment_config: ExperimentConfig):
-    all_acc, all_logs = [], []
+    all_acc, all_logs, all_run_dirs = [], [], []
     torch.cuda.set_device(gpu_id)
     model = CifarNet().to(f'cuda:{gpu_id}').to(memory_format=torch.channels_last)
     # model = torch.compile(model, mode="max-autotune-no-cudagraphs")
 
     for run in tqdm(range(runs_per_gpu)) if gpu_id == 0 else range(runs_per_gpu):
-        acc, logs = train_and_log(experiment_name, model, optimizer_config, experiment_config)
+        acc, logs, run_dirs = train_and_log(experiment_name, model, optimizer_config, experiment_config)
         all_acc.append(acc)
         all_logs.append(logs)
+        all_run_dirs.extend(run_dirs)
         
-    return all_acc, all_logs
+    return all_acc, all_logs, all_run_dirs
 
 
 def train_distributed(experiment_name, gpus, runs_per_gpu, optimizer_config, experiment_config: ExperimentConfig):
@@ -115,13 +150,17 @@ def train_distributed(experiment_name, gpus, runs_per_gpu, optimizer_config, exp
             for gpu_id in range(gpus)
         ]
         results = [p.get() for p in out]
+
+        pool.close()
+        pool.join()
     
-    all_accs, all_logs = [], []
-    for accs, logs_list in results:
+    all_accs, all_logs, all_run_dirs = [], [], []
+    for accs, logs_list, run_dirs in results:
         all_accs.extend(accs)
         all_logs.extend(logs_list)
+        all_run_dirs.extend(run_dirs)
 
-    return all_accs, all_logs
+    return all_accs, all_logs, all_run_dirs
 
 
 def print_aggregated_metrics(name, all_accs, all_logs, metrics=None, epochs=None):
@@ -165,23 +204,38 @@ def main():
     experiment_name = experiment_config.experiment_id
     # experiment_name = "hessian-every-epoch"
 
-    print("Performing Warmup...")
-    train_distributed("warmup", gpus, 1, MuonConfig(), experiment_config)
+    # print("Performing Warmup...")
+    # train_distributed("warmup", gpus, 1, NormalizedMuonConfig(), experiment_config)
 
-    # print("Running Muon Experiments...")
-    muon_accs, muon_logs = train_distributed(experiment_name, gpus, runs_per_gpu, MuonConfig(), experiment_config)
+    run_dirs = []
+
+    print("Running Normalized Muon Experiments...")
+    norm_muon_accs, norm_muon_logs, dirs = train_distributed(experiment_name, gpus, runs_per_gpu, NormalizedMuonConfig(), experiment_config)
+    run_dirs.extend(dirs)
+
+    print("Running Vanilla Muon Experiments...")
+    vanilla_muon_accs, vanilla_muon_logs, dirs = train_distributed(experiment_name, gpus, runs_per_gpu, VanillaMuonConfig(), experiment_config)
+    run_dirs.extend(dirs)
 
     print("Running SGD Experiments...")
-    sgd_accs, sgd_logs = train_distributed(experiment_name, gpus, runs_per_gpu, SGDConfig(), experiment_config)
+    sgd_accs, sgd_logs, dirs = train_distributed(experiment_name, gpus, runs_per_gpu, SGDConfig(), experiment_config)
+    run_dirs.extend(dirs)
 
     # print("Running Adam Experiments...")
-    adam_accs, adam_logs = train_distributed(experiment_name, gpus, runs_per_gpu, AdamConfig(), experiment_config)
+    adam_accs, adam_logs, dirs = train_distributed(experiment_name, gpus, runs_per_gpu, AdamConfig(), experiment_config)
+    run_dirs.extend(dirs)
 
-    # print_aggregated_metrics("Muon", muon_accs, muon_logs)
-    # print_aggregated_metrics("SGD", sgd_accs, sgd_logs)
-    # print_aggregated_metrics("Adam", adam_accs, adam_logs)
+    print_aggregated_metrics("Normalized Muon", norm_muon_accs, norm_muon_logs)
+    print_aggregated_metrics("Vanilla Muon", vanilla_muon_accs, vanilla_muon_logs)
+    print_aggregated_metrics("SGD", sgd_accs, sgd_logs)
+    print_aggregated_metrics("Adam", adam_accs, adam_logs)
 
     print(f"See https://wandb.ai/padlex/cifar10-airbench -> {experiment_name} for detailed results.")
+    # print("Run `wandb sync --sync-all` to upload offline logs.")
+
+    print("Syncing all runs to wandb in parallel...")
+    if experiment_config.wandb_mode == "offline":
+        sync_all_runs_parallel(run_dirs, 64)
 
 if __name__ == "__main__":
     main()

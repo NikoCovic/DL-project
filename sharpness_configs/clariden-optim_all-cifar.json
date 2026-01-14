@@ -1,14 +1,23 @@
 {
 	"wandb_project": "cifar10-airbench",
 	"experiment_id": "auto",
+	"wandb_mode": "offline",
 
-	"number_gpus": 1,
+	"number_gpus": 4,
 	"runs_per_gpu": 5,
 	
 	"metric_dataloader": "AirBenchCifarLoader",
 	"dataset_path": "data/cifar10",
-	"metric_batch_size": 1000,
+	"metric_batch_size": 1024,
 	"hessian_num_batches": 10,
-	
+	"metrics": ["pyhessian_sharpness", "adaptive_sharpness"],
+	"adaptive_sharpness": {
+		"rho": 0.05,
+		"eta": 0.01,
+		"ascent_steps": 20,
+		"ascent_lr": 0.1,
+		"use_eval_mode": true
+	},
+
 	"epochs_per_run": 10
 }
