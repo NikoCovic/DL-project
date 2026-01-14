@@ -7,6 +7,7 @@ Descends from airbench94_muon.py
 #############################################
 
 import os
+from typing import Any
 import uuid
 from math import ceil
 import torch
@@ -130,10 +131,10 @@ class OptimizerConfig:
         """Create and return optimizer(s) for the model. Must be implemented by subclasses."""
         raise NotImplementedError
 
-    def represent(self):
+    def represent(self) -> dict[str, Any]:
         """Return a dictionary representation of the optimizer configuration."""
         return {
-            "name": self.name,
+            "optimizer": self.name,
             "batch_size": self.batch_size,
             "bias_lr": self.bias_lr,
             "head_lr": self.head_lr,
@@ -168,7 +169,7 @@ class NormalizedMuonConfig(OptimizerConfig):
         
         return [optimizer1, optimizer2]
     
-    def represent(self):
+    def represent(self) -> dict[str, Any]:
         base_repr = super().represent()
         base_repr.update({
             "muon_lr": self.muon_lr,
@@ -207,7 +208,7 @@ class VanillaMuonConfig(OptimizerConfig):
         
         return [optimizer1, optimizer2]
     
-    def represent(self):
+    def represent(self) -> dict[str, Any]:
         base_repr = super().represent()
         base_repr.update({
             "muon_lr": self.muon_lr,
@@ -241,7 +242,7 @@ class SGDConfig(OptimizerConfig):
         
         return [optimizer]
     
-    def represent(self):
+    def represent(self) -> dict[str, Any]:
         base_repr = super().represent()
         base_repr.update({
             "filter_lr": self.filter_lr,
@@ -272,7 +273,7 @@ class AdamConfig(OptimizerConfig):
         
         return [optimizer]
     
-    def represent(self):
+    def represent(self) -> dict[str, Any]:
         base_repr = super().represent()
         base_repr.update({
             "filter_lr": self.filter_lr,
@@ -580,7 +581,7 @@ def train(run, model, experiment_config, optimizer_config, epochs=8, verbose=Fal
     stop_timer()
 
     if log_epoch_metrics_callback is not None:
-        log_epoch_metrics_callback(0, model, 0, 0)
+        log_epoch_metrics_callback(0, model, 0.1, 0.1) # Log initial metrics before training
 
     epochs = ceil(total_train_steps / len(train_loader))
     for epoch in range(epochs):

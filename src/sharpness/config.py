@@ -1,5 +1,5 @@
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, asdict
 from pathlib import Path
 import uuid
 from typing import Any
@@ -29,6 +29,27 @@ class ExperimentConfig:
     epochs_per_run: int
     dataset_path: Path
     adaptive_sharpness: AdaptiveSharpnessConfig | None = None
+
+    def represent(self) -> dict[str, Any]:
+        """Converts config to a flat dict suitable for W&B."""
+        
+        def _flatten(obj, prefix=""):
+            result = {}
+            items = asdict(obj).items() if hasattr(obj, "__dataclass_fields__") else obj.items()
+            
+            for key, value in items:
+                new_key = f"{prefix}{key}"
+                
+                if hasattr(value, "__dataclass_fields__"):
+                    # Recurse into nested dataclasses
+                    result.update(_flatten(value, prefix=f"{new_key}."))
+                elif isinstance(value, Path):
+                    result[new_key] = str(value)
+                else:
+                    result[new_key] = value
+            return result
+
+        return _flatten(self)
 
 def load_experiment_config(path: str | Path) -> ExperimentConfig:
     cfg_path = Path(path)

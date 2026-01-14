@@ -40,31 +40,8 @@ def train_and_log(experiment_name, model, optimizer_config, experiment_config: E
 
     start = time.time()
 
-    wandb_config = dict(optimizer_config.represent())
-    wandb_config["optimizer"] = wandb_config.pop("name")
-    wandb_config.update(
-        {
-            "experiment_id": experiment_config.experiment_id,
-            "dataset_path": str(experiment_config.dataset_path),
-            "epochs_per_run": experiment_config.epochs_per_run,
-            "number_gpus": experiment_config.number_gpus,
-            "runs_per_gpu": experiment_config.runs_per_gpu,
-            "metric_dataloader": experiment_config.metric_dataloader,
-            "metric_batch_size": experiment_config.metric_batch_size,
-            "hessian_num_batches": experiment_config.hessian_num_batches,
-            "metrics": experiment_config.metrics,
-        }
-    )
-    if experiment_config.adaptive_sharpness is not None:
-        wandb_config.update(
-            {
-                "adaptive_sharpness.rho": experiment_config.adaptive_sharpness.rho,
-                "adaptive_sharpness.eta": experiment_config.adaptive_sharpness.eta,
-                "adaptive_sharpness.ascent_steps": experiment_config.adaptive_sharpness.ascent_steps,
-                "adaptive_sharpness.ascent_lr": experiment_config.adaptive_sharpness.ascent_lr,
-                "adaptive_sharpness.use_eval_mode": experiment_config.adaptive_sharpness.use_eval_mode,
-            }
-        )
+    wandb_config = optimizer_config.represent()
+    wandb_config.update(experiment_config.represent())
 
     run = wandb.init(
         project=experiment_config.wandb_project,
@@ -78,8 +55,7 @@ def train_and_log(experiment_name, model, optimizer_config, experiment_config: E
         #     console="off"             # Disable console logging/wrapping
         # )
     )
-    run_dirs.append(str(Path(run.dir).parent))
-    # print(f"CUSTOM: Run `wandb sync {str(Path(run.dir).parent)}` to upload offline logs.")
+    run_dirs.append(str(Path(run.dir).parent))  # Store parent dir for later wandb sync if in offline mode
     middle = time.time()
     
     def log_epoch_metrics(epoch, model, training_accuracy, validation_accuracy):
@@ -96,14 +72,12 @@ def train_and_log(experiment_name, model, optimizer_config, experiment_config: E
             "train_acc": training_accuracy,
             "val_acc": validation_accuracy,
             "gap": training_accuracy - validation_accuracy,
-            "sam_sharpness": sam_sharpness(model, metric_batch),
-            # "niko_sharpness": niko_sharpness(model, metric_batch)
         }
 
         if epoch > 0:
-            # --- LOG SHARPNESS ---
             if "pyhessian_sharpness" in experiment_config.metrics:
                 log["hessian"], log["relative_hessian"] = pyhessian_sharpness(model, metric_batch)
+            
             if "adaptive_sharpness" in experiment_config.metrics:
                 log["adaptive_sharpness"] = adaptive_sharpness(
                     model,
@@ -111,7 +85,13 @@ def train_and_log(experiment_name, model, optimizer_config, experiment_config: E
                     metric_batch,
                     experiment_config.adaptive_sharpness,
                 )
-            # print(f"Hessian Top Eigenvalue: {log['hessian']}, Relative Hessian: {log['relative_hessian']}")
+            
+            if "sam_sharpness" in experiment_config.metrics:
+                log["sam_sharpness"] = sam_sharpness(model, metric_batch)
+
+            # if "niko_sharpness" in experiment_config.metrics:
+            #     log["niko_sharpness"] = niko_sharpness(model, metric_batch)
+            
         
         run.log(log)
         logs.append(log)
@@ -254,7 +234,8 @@ def main():
     # print("Run `wandb sync --sync-all` to upload offline logs.")
 
     print("Syncing all runs to wandb in parallel...")
-    sync_all_runs_parallel(run_dirs, 64)
+    if experiment_config.wandb_mode == "offline":
+        sync_all_runs_parallel(run_dirs, 64)
 
 if __name__ == "__main__":
     main()
