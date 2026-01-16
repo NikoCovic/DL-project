@@ -18,7 +18,7 @@ class EOSVisualizer():
                             "font.serif": ["Times New Roman", "DejaVu Serif"],
                             "font.size": 12,
                             "axes.linewidth": 1.5,
-                            "axes.linestyle": "-",
+                            "lines.linestyle": "-",
                             "xtick.direction": "in",
                             "ytick.direction": "in",
                             "xtick.top": True,
@@ -35,7 +35,7 @@ class EOSVisualizer():
 
     def plot_train_loss(self, optim_names=["adam", "rmsprop", "muon"], fig_size=3.0):
         plt.rcParams.update(self.params_plot)
-
+        print("Plotting training loss history...")
         for optim_name in optim_names:
             assert(optim_name in self.exp_dict.keys())
             experiments = self.exp_dict[optim_name]
@@ -52,7 +52,7 @@ class EOSVisualizer():
                     ax.plot(x, train_loss_history, label=fr'$\eta = {lr}$')
                 ax.set_xlabel(r'Epochs')
                 ax.set_ylabel(r'Training loss')
-                ax.legend(loc='upper left', frameon=True, fancybox=False, edgecolor='black', framealpha=1)
+                ax.legend(loc='upper right', frameon=True, fancybox=False, edgecolor='black', framealpha=1)
                 # ax.spines['top'].set_visible(False)
                 # ax.spines['right'].set_visible(False)
                 plt.tight_layout()
@@ -61,12 +61,13 @@ class EOSVisualizer():
                 if directory:
                     os.makedirs(directory, exist_ok=True)
                 plt.savefig(filename, bbox_inches='tight')
+                print(f"Figure saved under: {filename}")
 
 
 
 if __name__ == "__main__":
     print("Creating plots")
 
-    exp_dict = {"adam":["experiment-1768589001097135438"], "rmsprop":[], "muon":[]}
+    exp_dict = {"adam":[], "rmsprop":["experiment-1768601045502916003"], "muon":[]}
     eos_visualizer = EOSVisualizer(exp_dict)
-    eos_visualizer.plot_train_loss(optim_names=["adam"])
+    eos_visualizer.plot_train_loss(optim_names=["rmsprop"])
