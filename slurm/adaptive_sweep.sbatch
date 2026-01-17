@@ -12,4 +12,4 @@ set -euo pipefail
 nvidia-smi
 
 # Run the script
-uv run adaptive_sharpness_sweep.py --config sharpness_configs/adaptive_sharpness_sweep.json
+uv run adaptive_sharpness_sweep.py --config sharpness_configs/adaptive_sharpness_sweep_test.json

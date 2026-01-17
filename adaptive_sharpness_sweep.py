@@ -8,6 +8,7 @@ from pathlib import Path
 
 import torch
 import torch.nn.functional as F
+from scipy.stats import kendalltau, pearsonr
 from tqdm.auto import tqdm
 
 # Allow running as a script without installing the package.
@@ -30,6 +31,20 @@ class SweepConfig:
     output_path: Path
 
 
+@dataclass(frozen=True)
+class RunRow:
+    optimizer: str
+    rho: float
+    loss_gap: float
+    acc_gap: float
+    train_loss: float
+    test_loss: float
+    train_acc: float
+    test_acc: float
+    sharpness: float
+    path: str
+
+
 def load_json(path: Path) -> dict:
     with path.open("r", encoding="utf-8") as f:
         return json.load(f)
@@ -47,10 +62,10 @@ def find_model_files(checkpoint_dir: Path) -> list[Path]:
 
 
 def load_all_checkpoints(model_files: list[Path]) -> list[dict]:
+    # model_files = model_files[:3]
     ckpts = []
     for p in tqdm(model_files, desc="loading checkpoints"):
         ckpts.append({"path": str(p), "data": torch.load(p, map_location="cpu")})
-        # break # TODO: REMOVE
     return ckpts
 
 
@@ -219,61 +234,19 @@ def maybe_subset_batches(
 def kendall_tau_b(x: list[float], y: list[float]) -> float:
     if len(x) != len(y):
         raise ValueError("kendall_tau_b requires lists of the same length")
-    n = len(x)
-    if n < 2:
+    if len(x) < 2:
         return float("nan")
-
-    concordant = 0
-    discordant = 0
-    ties_x = 0
-    ties_y = 0
-
-    for i in range(n - 1):
-        xi = x[i]
-        yi = y[i]
-        for j in range(i + 1, n):
-            dx = xi - x[j]
-            dy = yi - y[j]
-            if dx == 0 and dy == 0:
-                continue
-            if dx == 0:
-                ties_x += 1
-                continue
-            if dy == 0:
-                ties_y += 1
-                continue
-            if dx * dy > 0:
-                concordant += 1
-            else:
-                discordant += 1
-
-    denom = math.sqrt((concordant + discordant + ties_x) * (concordant + discordant + ties_y))
-    if denom == 0:
-        return float("nan")
-    return (concordant - discordant) / denom
+    tau, _ = kendalltau(x, y, variant="b")
+    return float(tau) if tau is not None else float("nan")
 
 
 def pearson_r(x: list[float], y: list[float]) -> float:
     if len(x) != len(y):
         raise ValueError("pearson_r requires lists of the same length")
-    n = len(x)
-    if n < 2:
+    if len(x) < 2:
         return float("nan")
-    mean_x = sum(x) / n
-    mean_y = sum(y) / n
-    num = 0.0
-    den_x = 0.0
-    den_y = 0.0
-    for xi, yi in zip(x, y):
-        dx = xi - mean_x
-        dy = yi - mean_y
-        num += dx * dy
-        den_x += dx * dx
-        den_y += dy * dy
-    denom = math.sqrt(den_x * den_y)
-    if denom == 0:
-        return float("nan")
-    return num / denom
+    r, _ = pearsonr(x, y)
+    return float(r) if r is not None else float("nan")
 
 
 def optimizer_from_path(path_str: str) -> str:
@@ -323,11 +296,7 @@ def main():
         rho_values = [rho_values]
     rho_values = sorted(set(rho_values))
 
-    rho_gap_values: dict[float, list[float]] = {float(r): [] for r in rho_values}
-    rho_sharp_values: dict[float, list[float]] = {float(r): [] for r in rho_values}
-    optimizer_rho_gap: dict[str, dict[float, list[float]]] = {}
-    optimizer_rho_sharp: dict[str, dict[float, list[float]]] = {}
-    optimizer_rho_paths: dict[str, dict[float, list[str]]] = {}
+    rows: list[RunRow] = []
 
     for m in tqdm(models, desc="models"):
         print(f"model: {m['path']}")
@@ -341,7 +310,12 @@ def main():
             cfg.device,
             cfg.batch_size,
         )
-        gap_value = float(gap["train_test_loss_gap"])
+        loss_gap_value = float(gap["train_test_loss_gap"])
+        acc_gap_value = float(gap["train_test_acc_gap"])
+        train_loss_value = float(gap["train_loss"])
+        test_loss_value = float(gap["test_loss"])
+        train_acc_value = float(gap["train_acc"])
+        test_acc_value = float(gap["test_acc"])
 
         rho_sums = {float(r): 0.0 for r in rho_values}
         rho_counts = {float(r): 0 for r in rho_values}
@@ -374,69 +348,115 @@ def main():
             if rho_counts[rho] == 0:
                 continue
             avg_sharp = rho_sums[rho] / rho_counts[rho]
-            rho_gap_values[rho].append(gap_value)
-            rho_sharp_values[rho].append(avg_sharp)
-            optimizer_rho_gap.setdefault(optimizer_name, {}).setdefault(rho, []).append(
-                gap_value
-            )
-            optimizer_rho_sharp.setdefault(optimizer_name, {}).setdefault(rho, []).append(
-                avg_sharp
-            )
-            optimizer_rho_paths.setdefault(optimizer_name, {}).setdefault(rho, []).append(
-                str(m["path"])
+            rows.append(
+                RunRow(
+                    optimizer=optimizer_name,
+                    rho=float(rho),
+                    loss_gap=loss_gap_value,
+                    acc_gap=acc_gap_value,
+                    train_loss=train_loss_value,
+                    test_loss=test_loss_value,
+                    train_acc=train_acc_value,
+                    test_acc=test_acc_value,
+                    sharpness=float(avg_sharp),
+                    path=str(m["path"]),
+                )
             )
 
     best_rho = None
     best_tau = float("nan")
     best_abs_tau = float("-inf")
+    print(
+        "Note: LossGap = train_loss - test_loss and AccGap = train_acc - test_acc. "
+        "Because higher accuracy usually means lower loss, AccGap often moves opposite to LossGap. "
+        "If LossGap is negative (train loss < test loss), sharper models implying worse generalization "
+        "will show NEGATIVE correlation with LossGap but POSITIVE correlation with AccGap."
+    )
     for rho in rho_values:
         rho = float(rho)
-        tau = kendall_tau_b(rho_gap_values[rho], rho_sharp_values[rho])
-        print(f"rho={rho}: kendall_tau={tau}")
+        rho_rows = [row for row in rows if row.rho == rho]
+        loss_gaps = [row.loss_gap for row in rho_rows]
+        acc_gaps = [row.acc_gap for row in rho_rows]
+        sharps = [row.sharpness for row in rho_rows]
+        tau_loss = kendall_tau_b(loss_gaps, sharps)
+        tau_acc = kendall_tau_b(acc_gaps, sharps)
+        pr_loss = pearson_r(loss_gaps, sharps)
+        pr_acc = pearson_r(acc_gaps, sharps)
+        print(
+            f"rho={rho}: kendall_tau(loss)={tau_loss}, kendall_tau(acc)={tau_acc}, "
+            f"pearson_r(loss)={pr_loss}, pearson_r(acc)={pr_acc}"
+        )
 
         header = (
             f"{'Optimizer':<16} {'Row':<12} {'Kendall_tau':>12} "
-            f"{'Pearson_r':>12} {'Gap':>12} {'Sharpness':>12} Model"
+            f"{'Pearson_r':>12} {'TrainLoss':>12} {'TestLoss':>12} "
+            f"{'TrainAcc':>10} {'TestAcc':>10} {'LossGap':>12} "
+            f"{'AccGap':>10} {'Sharpness':>12} Model"
         )
         print(header)
-        for opt_name in sorted(optimizer_rho_gap.keys()):
-            gaps = optimizer_rho_gap.get(opt_name, {}).get(rho, [])
-            sharps = optimizer_rho_sharp.get(opt_name, {}).get(rho, [])
-            paths = optimizer_rho_paths.get(opt_name, {}).get(rho, [])
-            for i, (gap, sharp, path) in enumerate(zip(gaps, sharps, paths), start=1):
+        for opt_name in sorted({row.optimizer for row in rho_rows}):
+            opt_rows = [row for row in rho_rows if row.optimizer == opt_name]
+            for row in opt_rows:
                 print(
                     f"{opt_name:<16} {'run':<12} {'':>12} {'':>12} "
-                    f"{gap:>12.6f} {sharp:>12.6f} {path}"
+                    f"{row.train_loss:>12.6f} {row.test_loss:>12.6f} "
+                    f"{row.train_acc:>10.6f} {row.test_acc:>10.6f} "
+                    f"{row.loss_gap:>12.6f} {row.acc_gap:>10.6f} "
+                    f"{row.sharpness:>12.6f} {row.path}"
                 )
 
-            opt_tau = kendall_tau_b(gaps, sharps)
-            opt_pr = pearson_r(gaps, sharps)
+            opt_loss_gaps = [row.loss_gap for row in opt_rows]
+            opt_acc_gaps = [row.acc_gap for row in opt_rows]
+            opt_sharps = [row.sharpness for row in opt_rows]
+            opt_tau_loss = kendall_tau_b(opt_loss_gaps, opt_sharps)
+            opt_pr_loss = pearson_r(opt_loss_gaps, opt_sharps)
+            opt_tau_acc = kendall_tau_b(opt_acc_gaps, opt_sharps)
+            opt_pr_acc = pearson_r(opt_acc_gaps, opt_sharps)
             print(
-                f"{opt_name:<16} {'kendall_tau':<12} {opt_tau:>12.6f} "
+                f"{opt_name:<16} {'kendall_tau_loss':<16} {opt_tau_loss:>12.6f} "
                 f"{'':>12} {'':>12} {'':>12}"
             )
             print(
-                f"{opt_name:<16} {'pearson_r':<12} {'':>12} "
-                f"{opt_pr:>12.6f} {'':>12} {'':>12}"
+                f"{opt_name:<16} {'pearson_r_loss':<16} {'':>12} "
+                f"{opt_pr_loss:>12.6f} {'':>12} {'':>12}"
+            )
+            print(
+                f"{opt_name:<16} {'kendall_tau_acc':<16} {opt_tau_acc:>12.6f} "
+                f"{'':>12} {'':>12} {'':>12}"
+            )
+            print(
+                f"{opt_name:<16} {'pearson_r_acc':<16} {'':>12} "
+                f"{opt_pr_acc:>12.6f} {'':>12} {'':>12}"
             )
 
-        if not math.isnan(tau) and abs(tau) > best_abs_tau:
-            best_abs_tau = abs(tau)
-            best_tau = tau
+        if not math.isnan(tau_loss) and abs(tau_loss) > best_abs_tau:
+            best_abs_tau = abs(tau_loss)
+            best_tau = tau_loss
             best_rho = rho
 
     if best_rho is None:
         print("best_rho: n/a (insufficient data)")
     else:
         print(f"best_rho={best_rho} (kendall_tau={best_tau})")
-        header = f"{'Optimizer':<16} {'Kendall_tau':>12} {'Pearson_r':>12}"
+        header = (
+            f"{'Optimizer':<16} {'Kendall_tau':>12} {'Pearson_r':>12} "
+            f"{'Kendall_tau_acc':>16} {'Pearson_r_acc':>14}"
+        )
         print(header)
-        for opt_name in sorted(optimizer_rho_gap.keys()):
-            gaps = optimizer_rho_gap.get(opt_name, {}).get(best_rho, [])
-            sharps = optimizer_rho_sharp.get(opt_name, {}).get(best_rho, [])
-            tau = kendall_tau_b(gaps, sharps)
-            pr = pearson_r(gaps, sharps)
-            print(f"{opt_name:<16} {tau:>12.6f} {pr:>12.6f}")
+        best_rows = [row for row in rows if row.rho == best_rho]
+        for opt_name in sorted({row.optimizer for row in best_rows}):
+            opt_rows = [row for row in best_rows if row.optimizer == opt_name]
+            loss_gaps = [row.loss_gap for row in opt_rows]
+            acc_gaps = [row.acc_gap for row in opt_rows]
+            sharps = [row.sharpness for row in opt_rows]
+            tau_loss = kendall_tau_b(loss_gaps, sharps)
+            pr_loss = pearson_r(loss_gaps, sharps)
+            tau_acc = kendall_tau_b(acc_gaps, sharps)
+            pr_acc = pearson_r(acc_gaps, sharps)
+            print(
+                f"{opt_name:<16} {tau_loss:>12.6f} {pr_loss:>12.6f} "
+                f"{tau_acc:>12.6f} {pr_acc:>12.6f}"
+            )
 
 
 if __name__ == "__main__":
