@@ -33,37 +33,68 @@ class EOSVisualizer():
                             }
 
 
-    def plot_train_loss(self, optim_names=["adam", "rmsprop", "muon"], model_size='', yscale='linear', fig_size=3.0):
+    def plot_train_loss(self, optim_names=["adam", "rmsprop", "muon"], model_size='big', yscale='linear', fig_size=3.0):
         plt.rcParams.update(self.params_plot)
         for optim_name in optim_names:
             assert(optim_name in self.exp_dict.keys())
             experiments = self.exp_dict[optim_name]
             print(f"\nPlotting training loss history for {optim_name} {model_size} {yscale}...")
-            if len(experiments) >= 1: 
-                fig, ax = plt.subplots(figsize=(1.61*fig_size, fig_size))
-                for experiment in experiments:
-                    results = json.load(open(f"experiments/{experiment}/results.json", "r"))
 
-                    train_loss_history = results['train_loss_history']
-                    n_epochs = results['n_epochs'] 
-                    optim_params = results[optim_name]
-                    lr = optim_params['lr']
-                    x = np.arange(0, n_epochs)
-                    ax.plot(x, train_loss_history, label=fr'$\eta = {lr}$')
-                ax.set_xlabel(r'Epochs')
-                ax.set_ylabel(r'Training loss')
-                ax.set_yscale(yscale)
-                ax.legend(loc='upper right', frameon=True, fancybox=False, edgecolor='black', framealpha=1)
-                ax.set_title(f"Adam {model_size.capitalize()} Training Loss")
-                # ax.spines['top'].set_visible(False)
-                # ax.spines['right'].set_visible(False)
-                plt.tight_layout()
-                filename = f"plots/{model_size}/train_loss_history_{optim_name}_{model_size}_{yscale}.pdf"
-                directory = os.path.dirname(filename)
-                if directory:
-                    os.makedirs(directory, exist_ok=True)
-                plt.savefig(filename, bbox_inches='tight')
-                print(f"Figure saved under: {filename}")
+            fig, ax = plt.subplots(figsize=(1.61*fig_size, fig_size))
+            for experiment in experiments:
+                results = json.load(open(f"experiments/{experiment}/results.json", "r"))
+
+                train_loss_history = results['train_loss_history']
+                n_epochs = results['n_epochs'] 
+                optim_params = results[optim_name]
+                lr = optim_params['lr']
+                x = np.arange(0, n_epochs)
+                ax.plot(x, train_loss_history, label=fr'$\eta = {lr}$')
+            ax.set_xlabel(r'Epochs')
+            ax.set_ylabel(r'Training loss')
+            ax.set_yscale(yscale)
+            ax.legend(loc='upper right', frameon=True, fancybox=False, edgecolor='black', framealpha=1)
+            ax.set_title(f"{optim_name.capitalize()} {model_size.capitalize()} Training Loss")
+            plt.tight_layout()
+            filename = f"plots/{model_size}/train_loss_history_{optim_name}_{model_size}_{yscale}.pdf"
+            directory = os.path.dirname(filename)
+            if directory:
+                os.makedirs(directory, exist_ok=True)
+            plt.savefig(filename, bbox_inches='tight')
+            print(f"Figure saved under: {filename}")
+
+
+    def plot_sharpness(self, optim_names=["adam", "rmsprop", "muon"], model_size='big', yscale='linear', fig_size=3.0):
+        plt.rcParams.update(self.params_plot)
+        for optim_name in optim_names:
+            assert(optim_name in self.exp_dict.keys())
+            experiments = self.exp_dict[optim_name]
+            print(f"\nPlotting sharpness for {optim_name} {model_size} {yscale}...")
+
+            fig, ax = plt.subplots(figsize=(1.61*fig_size, fig_size))
+            for experiment in experiments:
+                results = json.load(open(f"experiments/{experiment}/results.json", "r"))
+                sharp_dict = results['sharpness']
+                sharp = sharp_dict['measurements']
+                freq = sharp_dict['freq']
+                n_warmup = sharp_dict['n_warmup']
+                n_epochs = results['n_epochs']
+                optim_params = results[optim_name]
+                lr = optim_params['lr']
+                x = np.arange(0 + n_warmup, n_epochs, step=freq)
+                ax.plot(x, sharp, label=fr'$\eta = {lr}$')
+            ax.set_xlabel(r'Epochs')
+            ax.set_ylabel(r'Sharpness')
+            ax.set_yscale(yscale)
+            ax.legend(loc='upper left', frameon=True, fancybox=False, edgecolor='black', framealpha=1)
+            ax.set_title(f" Sharpness {optim_name.capitalize()} {model_size.capitalize()}")
+            plt.tight_layout()
+            filename = f"plots/{model_size}/sharpness_{optim_name}_{model_size}_{yscale}.pdf"
+            directory = os.path.dirname(filename)
+            if directory:
+                os.makedirs(directory, exist_ok=True)
+            plt.savefig(filename, bbox_inches='tight')
+            print(f"Figure saved under: {filename}")
 
 
 
@@ -91,4 +122,5 @@ if __name__ == "__main__":
         eos_visualizer = EOSVisualizer(exp_dict)
         eos_visualizer.plot_train_loss(optim_names=list(exp_dict.keys()), model_size=model_size, yscale='linear')
         eos_visualizer.plot_train_loss(optim_names=list(exp_dict.keys()), model_size=model_size, yscale='log')
+        eos_visualizer.plot_sharpness(optim_names=list(exp_dict.keys()), model_size=model_size)
     print("\nPlots complete.\n")
