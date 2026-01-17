@@ -121,6 +121,79 @@ class EOSVisualizer():
             print(f"Figure saved under: {filename}")
 
 
+    def plot_combined_metrics(self, optim_names=["adam", "rmsprop", "muon"], model_size='big', yscale='linear', fig_size=4.0):
+        plt.rcParams.update(self.params_plot)
+        
+        for optim_name in optim_names:
+            experiments = self.exp_dict.get(optim_name, [])
+            if not experiments:
+                continue
+
+            print(f"\nPlotting combined metrics for {optim_name} {model_size}...")
+            
+            # Create 3 vertical subplots with shared X-axis (Epochs)
+            fig, axes = plt.subplots(3, 1, figsize=(1.61 * fig_size, fig_size * 2.1), sharex=True)
+            ax_loss, ax_sharp, ax_eff_sharp = axes
+
+            handles, labels = [], []
+
+            for experiment in experiments:
+                try:
+                    with open(f"experiments/{experiment}/results.json", "r") as f:
+                        results = json.load(f)
+                except FileNotFoundError:
+                    print(f"Warning: experiment {experiment} not found.")
+                    continue
+
+                lr = results[optim_name]['lr']
+                n_epochs = results['n_epochs']
+                
+                # Capture one color to use for all three metrics for this specific LR
+                curr_color = ax_loss._get_lines.get_next_color()
+
+                # 1. Train Loss
+                x_loss = np.arange(0, n_epochs)
+                l_plot, = ax_loss.plot(x_loss, results['train_loss_history'], color=curr_color, label=fr'$\eta = {lr}$')
+                
+                # Collect handles for the single figure legend
+                handles.append(l_plot)
+                labels.append(fr'$\eta = {lr}$')
+
+                # 2. Sharpness
+                s_dict = results['sharpness']
+                x_s = np.arange(s_dict['n_warmup'], n_epochs, step=s_dict['freq'])
+                ax_sharp.plot(x_s, s_dict['measurements'], color=curr_color)
+
+                # 3. Effective Sharpness
+                es_dict = results['eff_sharpness']
+                x_es = np.arange(es_dict['n_warmup'], n_epochs, step=es_dict['freq'])
+                ax_eff_sharp.axhline(es_dict['thresh'], linestyle="--", alpha=0.9, color=curr_color)
+                ax_eff_sharp.plot(x_es, es_dict['measurements'], color=curr_color)
+
+            # --- Formatting and Aesthetics ---
+            ax_loss.set_ylabel(r'Loss')
+            ax_loss.set_yscale(yscale)
+            
+            ax_sharp.set_ylabel(r'Sharpness')
+            
+            ax_eff_sharp.set_ylabel(r'Eff. Sharpness')
+            ax_eff_sharp.set_xlabel(r'Epochs')
+            if min(es_dict['measurements'][:200]) <= 1000: 
+                ax_eff_sharp.set_ylim(bottom=min(es_dict['measurements'][:200]) - 5000)
+            else:
+                ax_eff_sharp.set_ylim(bottom=min(0, -0.10 * (min(es_dict['measurements']) - abs(min(es_dict['measurements'][:200])))))
+            
+            ax_loss.set_title(f"{optim_name.capitalize()} {model_size.capitalize()} Training Dynamics", pad=15)
+
+            ax_loss.legend(handles, labels, loc='best', frameon=True, fancybox=False, edgecolor='black')
+            plt.tight_layout()
+
+            # Save the figure
+            filename = f"plots/{model_size}/combined/combined_{optim_name}_{model_size}_{yscale}.pdf"
+            os.makedirs(os.path.dirname(filename), exist_ok=True)
+            plt.savefig(filename, bbox_inches='tight')
+            plt.close()
+            print(f"Combined figure saved: {filename}")
 
 if __name__ == "__main__":
 
@@ -149,4 +222,5 @@ if __name__ == "__main__":
         eos_visualizer.plot_train_loss(optim_names=list(exp_dict.keys()), model_size=model_size, yscale='log', fig_size=fig_size)
         eos_visualizer.plot_sharpness(optim_names=list(exp_dict.keys()), model_size=model_size, fig_size=fig_size)
         eos_visualizer.plot_eff_sharpness(optim_names=list(exp_dict.keys()), model_size=model_size, fig_size=fig_size)
+        eos_visualizer.plot_combined_metrics(optim_names=list(exp_dict.keys()), model_size=model_size, fig_size=fig_size)
     print("\nPlots complete.\n")
