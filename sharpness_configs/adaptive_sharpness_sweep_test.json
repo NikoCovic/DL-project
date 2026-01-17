@@ -5,6 +5,8 @@
   "batch_size": 2000,
   "subset_batches": 3,
 
+  "optimizer_filter": "sgd",
+
   "device": "cuda",
   "output_path": "results/adaptive_sharpness_sweep_results.grid.csv",
   "parameters": {

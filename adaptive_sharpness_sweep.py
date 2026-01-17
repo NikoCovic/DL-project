@@ -27,6 +27,7 @@ class SweepConfig:
     batch_size: int
     device: str
     subset_batches: int | None
+    optimizer_filter: str | None
     params: dict
     output_path: Path
 
@@ -48,6 +49,34 @@ class RunRow:
 def load_json(path: Path) -> dict:
     with path.open("r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def coerce_value(raw: str):
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return raw
+
+
+def apply_overrides(cfg: dict, overrides: list[str]) -> dict:
+    for item in overrides:
+        if "=" not in item:
+            raise ValueError(f"Override must be in key=value format (got {item!r})")
+        key, value_raw = item.split("=", 1)
+        value = coerce_value(value_raw)
+
+        if key.startswith("parameters."):
+            param_key = key.split(".", 1)[1]
+            params = cfg.get("parameters")
+            if params is None:
+                params = cfg.get("adaptive_sharpness")
+                if params is None:
+                    params = {}
+                    cfg["parameters"] = params
+            params[param_key] = value
+        else:
+            cfg[key] = value
+    return cfg
 
 
 def as_grid(params: dict) -> list[dict]:
@@ -195,6 +224,9 @@ def parse_config(raw: dict) -> SweepConfig:
     batch_size = int(raw.get("batch_size", 512))
     device = str(raw.get("device", "cuda"))
     subset_batches = raw.get("subset_batches")
+    optimizer_filter = raw.get("optimizer_filter")
+    if optimizer_filter is not None:
+        optimizer_filter = str(optimizer_filter)
     if subset_batches is not None:
         subset_batches = int(subset_batches)
         if subset_batches <= 0:
@@ -214,6 +246,7 @@ def parse_config(raw: dict) -> SweepConfig:
         batch_size=batch_size,
         device=device,
         subset_batches=subset_batches,
+        optimizer_filter=optimizer_filter,
         params=dict(params),
         output_path=output_path,
     )
@@ -261,13 +294,36 @@ def optimizer_from_path(path_str: str) -> str:
 def main():
     parser = argparse.ArgumentParser(description="Adaptive sharpness grid sweep over saved checkpoints")
     parser.add_argument("--config", required=True, help="Path to JSON config")
+    parser.add_argument(
+        "--set",
+        dest="overrides",
+        action="append",
+        default=[],
+        help=(
+            "Override config values with key=value. Use parameters.<name> to override "
+            "adaptive_sharpness parameters. Example: --set batch_size=1024 --set parameters.rho=[0.1,0.2]"
+        ),
+    )
     args = parser.parse_args()
 
-    cfg = parse_config(load_json(Path(args.config)))
+    raw_cfg = load_json(Path(args.config))
+    if args.overrides:
+        raw_cfg = apply_overrides(raw_cfg, args.overrides)
+    cfg = parse_config(raw_cfg)
 
     model_files = find_model_files(cfg.checkpoint_dir)
     if not model_files:
         raise FileNotFoundError(f"No model.pt found under {cfg.checkpoint_dir}")
+
+    if cfg.optimizer_filter:
+        model_files = [
+            p for p in model_files if optimizer_from_path(str(p)) == cfg.optimizer_filter
+        ]
+        if not model_files:
+            raise FileNotFoundError(
+                f"No model.pt found under {cfg.checkpoint_dir} for optimizer "
+                f"{cfg.optimizer_filter!r}"
+            )
 
     checkpoints = load_all_checkpoints(model_files)
     models = load_all_models(checkpoints, cfg.device)
