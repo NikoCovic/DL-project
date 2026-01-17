@@ -16,3 +16,5 @@ wandb
 dataloaders
 slurm/out/*
 checkpoints
+
+sharpness_experiments/
