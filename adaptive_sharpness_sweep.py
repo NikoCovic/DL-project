@@ -253,6 +253,38 @@ def kendall_tau_b(x: list[float], y: list[float]) -> float:
     return (concordant - discordant) / denom
 
 
+def pearson_r(x: list[float], y: list[float]) -> float:
+    if len(x) != len(y):
+        raise ValueError("pearson_r requires lists of the same length")
+    n = len(x)
+    if n < 2:
+        return float("nan")
+    mean_x = sum(x) / n
+    mean_y = sum(y) / n
+    num = 0.0
+    den_x = 0.0
+    den_y = 0.0
+    for xi, yi in zip(x, y):
+        dx = xi - mean_x
+        dy = yi - mean_y
+        num += dx * dy
+        den_x += dx * dx
+        den_y += dy * dy
+    denom = math.sqrt(den_x * den_y)
+    if denom == 0:
+        return float("nan")
+    return num / denom
+
+
+def optimizer_from_path(path_str: str) -> str:
+    name = Path(path_str).parent.name
+    parts = name.split("-")
+    if len(parts) >= 2 and parts[-1].isdigit():
+        base = "-".join(parts[:-1])
+        return base if base else name
+    return name
+
+
 def main():
     parser = argparse.ArgumentParser(description="Adaptive sharpness grid sweep over saved checkpoints")
     parser.add_argument("--config", required=True, help="Path to JSON config")
@@ -293,9 +325,12 @@ def main():
 
     rho_gap_values: dict[float, list[float]] = {float(r): [] for r in rho_values}
     rho_sharp_values: dict[float, list[float]] = {float(r): [] for r in rho_values}
+    optimizer_rho_gap: dict[str, dict[float, list[float]]] = {}
+    optimizer_rho_sharp: dict[str, dict[float, list[float]]] = {}
 
     for m in tqdm(models, desc="models"):
         print(f"model: {m['path']}")
+        optimizer_name = optimizer_from_path(m["path"])
         gap = train_test_gaps(
             m["model"],
             x_train,
@@ -340,14 +375,22 @@ def main():
             avg_sharp = rho_sums[rho] / rho_counts[rho]
             rho_gap_values[rho].append(gap_value)
             rho_sharp_values[rho].append(avg_sharp)
+            optimizer_rho_gap.setdefault(optimizer_name, {}).setdefault(rho, []).append(
+                gap_value
+            )
+            optimizer_rho_sharp.setdefault(optimizer_name, {}).setdefault(rho, []).append(
+                avg_sharp
+            )
 
     best_rho = None
-    best_tau = float("-inf")
+    best_tau = float("nan")
+    best_abs_tau = float("-inf")
     for rho in rho_values:
         rho = float(rho)
         tau = kendall_tau_b(rho_gap_values[rho], rho_sharp_values[rho])
         print(f"rho={rho}: kendall_tau={tau}")
-        if not math.isnan(tau) and tau > best_tau:
+        if not math.isnan(tau) and abs(tau) > best_abs_tau:
+            best_abs_tau = abs(tau)
             best_tau = tau
             best_rho = rho
 
@@ -355,6 +398,14 @@ def main():
         print("best_rho: n/a (insufficient data)")
     else:
         print(f"best_rho={best_rho} (kendall_tau={best_tau})")
+        header = f"{'Optimizer':<16} {'Kendall_tau':>12} {'Pearson_r':>12}"
+        print(header)
+        for opt_name in sorted(optimizer_rho_gap.keys()):
+            gaps = optimizer_rho_gap.get(opt_name, {}).get(best_rho, [])
+            sharps = optimizer_rho_sharp.get(opt_name, {}).get(best_rho, [])
+            tau = kendall_tau_b(gaps, sharps)
+            pr = pearson_r(gaps, sharps)
+            print(f"{opt_name:<16} {tau:>12.6f} {pr:>12.6f}")
 
 
 if __name__ == "__main__":
