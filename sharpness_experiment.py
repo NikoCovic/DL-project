@@ -125,7 +125,8 @@ def train_and_log(
         if experiment_config.checkpoint_dir is None:
             raise ValueError("checkpoint_dir is None but checkpointing is enabled")
         ckpt_base = Path(experiment_config.checkpoint_dir) / str(experiment_config.experiment_id)
-        ckpt_run_dir = ckpt_base / f"{optimizer_config.name}-{int(run_number)}"
+        gpu_id = torch.cuda.current_device()
+        ckpt_run_dir = ckpt_base / f"{optimizer_config.name}-{int(run_number)}-{gpu_id}"
         ckpt_run_dir.mkdir(parents=True, exist_ok=True)
 
         # Model weights (CPU state_dict for portability)
