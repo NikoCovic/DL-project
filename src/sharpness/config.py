@@ -1,5 +1,5 @@
 import json
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from pathlib import Path
 import uuid
 from typing import Any
@@ -29,27 +29,36 @@ class ExperimentConfig:
     epochs_per_run: int
     dataset_path: Path
     adaptive_sharpness: AdaptiveSharpnessConfig | None = None
+    checkpoint_enabled: bool = False
+    checkpoint_dir: Path | None = None
 
     def represent(self) -> dict[str, Any]:
-        """Converts config to a flat dict suitable for W&B."""
-        
-        def _flatten(obj, prefix=""):
-            result = {}
-            items = asdict(obj).items() if hasattr(obj, "__dataclass_fields__") else obj.items()
-            
-            for key, value in items:
-                new_key = f"{prefix}{key}"
-                
-                if hasattr(value, "__dataclass_fields__"):
-                    # Recurse into nested dataclasses
-                    result.update(_flatten(value, prefix=f"{new_key}."))
-                elif isinstance(value, Path):
-                    result[new_key] = str(value)
-                else:
-                    result[new_key] = value
-            return result
+        """Return a JSON-serializable dict suitable for W&B config."""
 
-        return _flatten(self)
+        out: dict[str, Any] = {
+            "experiment_id": self.experiment_id,
+            "wandb_project": self.wandb_project,
+            "wandb_mode": self.wandb_mode,
+            "number_gpus": self.number_gpus,
+            "runs_per_gpu": self.runs_per_gpu,
+            "metric_dataloader": self.metric_dataloader,
+            "metric_batch_size": self.metric_batch_size,
+            "hessian_num_batches": self.hessian_num_batches,
+            "metrics": list(self.metrics),
+            "epochs_per_run": self.epochs_per_run,
+            "dataset_path": str(self.dataset_path),
+            "checkpoint_enabled": bool(self.checkpoint_enabled),
+            "checkpoint_dir": str(self.checkpoint_dir) if self.checkpoint_dir is not None else None,
+        }
+        if self.adaptive_sharpness is not None:
+            out["adaptive_sharpness"] = {
+                "rho": self.adaptive_sharpness.rho,
+                "eta": self.adaptive_sharpness.eta,
+                "ascent_steps": self.adaptive_sharpness.ascent_steps,
+                "ascent_lr": self.adaptive_sharpness.ascent_lr,
+                "use_eval_mode": self.adaptive_sharpness.use_eval_mode,
+            }
+        return out
 
 def load_experiment_config(path: str | Path) -> ExperimentConfig:
     cfg_path = Path(path)
@@ -74,6 +83,16 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
 
     project_root = Path(__file__).resolve().parents[2]
     dataset_path = project_root / Path(data.get("dataset_path"))
+
+    checkpointing = data.get("checkpointing", {})
+    checkpoint_enabled = bool(checkpointing.get("enabled", False))
+    checkpoint_dir_raw = checkpointing.get("dir")
+    if checkpoint_enabled:
+        if checkpoint_dir_raw in (None, ""):
+            raise ValueError("checkpointing.dir must be set when checkpointing.enabled is true")
+        checkpoint_dir = project_root / Path(checkpoint_dir_raw)
+    else:
+        checkpoint_dir = None
 
     metric_dataloader = str(data.get("metric_dataloader"))
     if metric_dataloader == "AirBenchCifarLoader":
@@ -121,4 +140,6 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
         dataset_path=dataset_path,
         adaptive_sharpness=adaptive_sharpness,
         wandb_mode=wandb_mode,
+        checkpoint_enabled=checkpoint_enabled,
+        checkpoint_dir=checkpoint_dir,
     )

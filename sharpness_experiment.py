@@ -14,6 +14,7 @@ import numpy as np
 import wandb
 import time
 import argparse
+from shutil import copy2
 
 from src.sharpness import pyhessian_sharpness, sam_sharpness, samlike_sharpness, adaptive_sharpness
 from src.sharpness.config import load_experiment_config, ExperimentConfig
@@ -32,7 +33,14 @@ from src.sharpness.wandb_sync import sync_all_runs_parallel
 #     return e
 
 
-def train_and_log(experiment_name, model, optimizer_config, experiment_config: ExperimentConfig):
+def train_and_log(
+    experiment_name,
+    model,
+    optimizer_config,
+    experiment_config: ExperimentConfig,
+    run_number: int,
+    config_file_path: Path,
+):
     logs = []
     run_dirs = []
 
@@ -42,6 +50,7 @@ def train_and_log(experiment_name, model, optimizer_config, experiment_config: E
 
     wandb_config = optimizer_config.represent()
     wandb_config.update(experiment_config.represent())
+    wandb_config["run_number"] = int(run_number)
 
     run = wandb.init(
         project=experiment_config.wandb_project,
@@ -110,6 +119,30 @@ def train_and_log(experiment_name, model, optimizer_config, experiment_config: E
 
     post = time.time()
     run.log({"tta_val_accuracy": final_acc, "tta_gap": logs[-1]["val_acc"] - final_acc})
+
+    if experiment_config.checkpoint_enabled:
+        # Save final model + configs into: checkpoint_dir/experiment_id/optimizer_name-run_number
+        if experiment_config.checkpoint_dir is None:
+            raise ValueError("checkpoint_dir is None but checkpointing is enabled")
+        ckpt_base = Path(experiment_config.checkpoint_dir) / str(experiment_config.experiment_id)
+        ckpt_run_dir = ckpt_base / f"{optimizer_config.name}-{int(run_number)}"
+        ckpt_run_dir.mkdir(parents=True, exist_ok=True)
+
+        # Model weights (CPU state_dict for portability)
+        state_dict_cpu = {k: v.detach().cpu() for k, v in model.state_dict().items()}
+        torch.save(
+            {
+                "model_state_dict": state_dict_cpu,
+                "final_acc": float(final_acc),
+                "optimizer": optimizer_config.represent(),
+                "experiment_id": str(experiment_config.experiment_id),
+            },
+            ckpt_run_dir / "model.pt",
+        )
+
+        # Save the exact config file that was passed to the program.
+        copy2(config_file_path, ckpt_run_dir / "config.json")
+
     run.finish()
     end = time.time()
 
@@ -120,14 +153,30 @@ def train_and_log(experiment_name, model, optimizer_config, experiment_config: E
     return final_acc, logs, run_dirs
 
 
-def worker(experiment_name, gpu_id, runs_per_gpu, optimizer_config, experiment_config: ExperimentConfig):
+def worker(
+    experiment_name,
+    gpu_id,
+    runs_per_gpu,
+    optimizer_config,
+    experiment_config: ExperimentConfig,
+    config_file_path: Path,
+):
     all_acc, all_logs, all_run_dirs = [], [], []
     torch.cuda.set_device(gpu_id)
     model = CifarNet().to(f'cuda:{gpu_id}').to(memory_format=torch.channels_last)
     # model = torch.compile(model, mode="max-autotune-no-cudagraphs")
 
     for run in tqdm(range(runs_per_gpu)) if gpu_id == 0 else range(runs_per_gpu):
-        acc, logs, run_dirs = train_and_log(experiment_name, model, optimizer_config, experiment_config)
+        # 1-indexed run number (matches "(1-5 currently)" naming)
+        run_number = int(run) + 1
+        acc, logs, run_dirs = train_and_log(
+            experiment_name,
+            model,
+            optimizer_config,
+            experiment_config,
+            run_number,
+            config_file_path,
+        )
         all_acc.append(acc)
         all_logs.append(logs)
         all_run_dirs.extend(run_dirs)
@@ -135,17 +184,24 @@ def worker(experiment_name, gpu_id, runs_per_gpu, optimizer_config, experiment_c
     return all_acc, all_logs, all_run_dirs
 
 
-def train_distributed(experiment_name, gpus, runs_per_gpu, optimizer_config, experiment_config: ExperimentConfig):
+def train_distributed(
+    experiment_name,
+    gpus,
+    runs_per_gpu,
+    optimizer_config,
+    experiment_config: ExperimentConfig,
+    config_file_path: Path,
+):
 
     if gpus == 1:
-        return worker(experiment_name, 0, runs_per_gpu, optimizer_config, experiment_config)
+        return worker(experiment_name, 0, runs_per_gpu, optimizer_config, experiment_config, config_file_path)
 
     ctx = mp.get_context('spawn')
     with ctx.Pool(gpus) as pool:
         out = [
             pool.apply_async(
                 worker,
-                args=(experiment_name, gpu_id, runs_per_gpu, optimizer_config, experiment_config),
+                args=(experiment_name, gpu_id, runs_per_gpu, optimizer_config, experiment_config, config_file_path),
             )
             for gpu_id in range(gpus)
         ]
@@ -197,7 +253,8 @@ def main():
     )
     args = parser.parse_args()
 
-    experiment_config = load_experiment_config(args.config)
+    config_file_path = Path(args.config).resolve()
+    experiment_config = load_experiment_config(config_file_path)
 
     gpus = experiment_config.number_gpus
     runs_per_gpu = experiment_config.runs_per_gpu
@@ -210,19 +267,19 @@ def main():
     run_dirs = []
 
     print("Running Normalized Muon Experiments...")
-    norm_muon_accs, norm_muon_logs, dirs = train_distributed(experiment_name, gpus, runs_per_gpu, NormalizedMuonConfig(), experiment_config)
+    norm_muon_accs, norm_muon_logs, dirs = train_distributed(experiment_name, gpus, runs_per_gpu, NormalizedMuonConfig(), experiment_config, config_file_path)
     run_dirs.extend(dirs)
 
     print("Running Vanilla Muon Experiments...")
-    vanilla_muon_accs, vanilla_muon_logs, dirs = train_distributed(experiment_name, gpus, runs_per_gpu, VanillaMuonConfig(), experiment_config)
+    vanilla_muon_accs, vanilla_muon_logs, dirs = train_distributed(experiment_name, gpus, runs_per_gpu, VanillaMuonConfig(), experiment_config, config_file_path)
     run_dirs.extend(dirs)
 
     print("Running SGD Experiments...")
-    sgd_accs, sgd_logs, dirs = train_distributed(experiment_name, gpus, runs_per_gpu, SGDConfig(), experiment_config)
+    sgd_accs, sgd_logs, dirs = train_distributed(experiment_name, gpus, runs_per_gpu, SGDConfig(), experiment_config, config_file_path)
     run_dirs.extend(dirs)
 
     # print("Running Adam Experiments...")
-    adam_accs, adam_logs, dirs = train_distributed(experiment_name, gpus, runs_per_gpu, AdamConfig(), experiment_config)
+    adam_accs, adam_logs, dirs = train_distributed(experiment_name, gpus, runs_per_gpu, AdamConfig(), experiment_config, config_file_path)
     run_dirs.extend(dirs)
 
     print_aggregated_metrics("Normalized Muon", norm_muon_accs, norm_muon_logs)

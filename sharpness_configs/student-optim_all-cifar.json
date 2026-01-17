@@ -10,7 +10,7 @@
 	"dataset_path": "data/cifar10",
 	"metric_batch_size": 256,
 	"hessian_num_batches": 10,
-	"metrics": ["pyhessian_sharpness", "adaptive_sharpness"],
+	"metrics": [],
 	"adaptive_sharpness": {
 		"rho": 0.05,
 		"eta": 0.01,
@@ -18,6 +18,11 @@
 		"ascent_lr": 0.1,
 		"use_eval_mode": true
 	},
-
+	
 	"epochs_per_run": 10
+	,
+	"checkpointing": {
+		"enabled": true,
+		"dir": "checkpoints"
+	}
 }
