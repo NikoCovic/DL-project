@@ -1,5 +1,5 @@
 {
-  "checkpoint_dir": "checkpoints/c9d5f482",
+  "checkpoint_dir": "checkpoints/17784271",
   "dataset_path": "data/cifar10",
   "split": "train",
   "batch_size": 2000,
