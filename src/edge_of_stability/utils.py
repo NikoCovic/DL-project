@@ -2,6 +2,7 @@ import torch
 from typing import Iterable
 from torch.nn.parameter import Parameter
 from torch.optim import Optimizer, Adam, RMSprop, Muon, SGD
+from src.sharpness.airbench94_muon import VanillaMuon
     
 
 def params_copy(params:Iterable[Parameter]):
@@ -156,7 +157,7 @@ def fetch_threshold(optim:Optimizer, metric:str="eff_sharpness"):
             momentum = optim.param_groups[0]["betas"][0]
             lr = optim.param_groups[0]["lr"]
             return (2 + 2*momentum)/((1 - momentum)*lr)
-        elif isinstance(optim, Muon):
+        elif isinstance(optim, VanillaMuon):
             momentum = optim.param_groups[0]["momentum"]
             lr = optim.param_groups[0]["lr"]
             return (2 + 2*momentum)/lr
@@ -206,5 +207,4 @@ class ParameterBasis():
             return self
         else:
             return ParameterBasis(Q)
-        
 

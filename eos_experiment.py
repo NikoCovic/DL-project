@@ -1,9 +1,11 @@
 import os
 
 try:
-    from torch.optim import Muon, RMSprop, Adam
+    from torch.optim import Muon, RMSprop, Adam, SGD
 except ImportError:
     raise ImportError("Muon optimizer not found. Install the nightly version of PyTorch")
+
+from src.sharpness.airbench94_muon import VanillaMuon
 
 from torch.nn import MSELoss, CrossEntropyLoss
 from torch.utils.data import DataLoader
@@ -24,13 +26,14 @@ from src.edge_of_stability.networks import MLP
 from src.edge_of_stability.datasets import CIFAR10Dataset
 from src.edge_of_stability.configs import *
 from src.edge_of_stability.utils import fetch_threshold
+from src.edge_of_stability.frozen_optim_factory import fetch_frozen_optim
 from typing import Union, Literal, Annotated, Set
 import tyro
 from tyro.conf import arg
 
 
 ValidOptim = Union[
-    Literal["muon", "rmsprop", "adam"]
+    Literal["muon", "rmsprop", "adam", "frozen_muon", "frozen_adam", "sgd"]
 ]
 ValidModel = Union[
     Literal["mlp"]
@@ -48,6 +51,7 @@ def main(optim:ValidOptim,
          muon_config:Annotated[MuonConfig, arg(name="muon")],
          rmsprop_config:Annotated[RMSpropConfig, arg(name="rmsprop")],
          adam_config:Annotated[AdamConfig, arg(name="adam")],
+         sgd_config:Annotated[SGDConfig, arg(name="sgd")],
          trackers:Set[Literal["sharpness", "spectral_norm", "eff_sharpness", "eff_spectral_norm", "update_sharpness", "update_spectral_norm"]],
          sharpness_config:Annotated[TrackerConfig, arg(name="sharpness")],
          spectral_norm_config:Annotated[TrackerConfig, arg(name="spectral_norm")],
@@ -55,6 +59,7 @@ def main(optim:ValidOptim,
          eff_spectral_norm_config:Annotated[TrackerConfig, arg(name="eff_spectral_norm")],
          update_sharpness_config:Annotated[TrackerConfig, arg(name="update_sharpness")],
          update_spectral_norm_config:Annotated[TrackerConfig, arg(name="update_spectral_norm")],
+         frozen_optim_config:Annotated[FrozenOptimConfig, arg(name="frozen_optim")],
          val_split:float=0.2,
          n_epochs:int=500,
          seed:int=42):
@@ -98,7 +103,7 @@ def main(optim:ValidOptim,
     # Construct the optimizer
     optim_name = optim
     if optim == "muon":
-        optim = Muon(model.parameters(),
+        optim = VanillaMuon(model.parameters(),
                      **asdict(muon_config))
     elif optim == "rmsprop":
         optim = RMSprop(model.parameters(),
@@ -106,6 +111,23 @@ def main(optim:ValidOptim,
     elif optim == "adam":
         optim = Adam(model.parameters(),
                      **asdict(adam_config))
+    elif optim == "frozen_muon":
+        optim = _construct_frozen_optim(optim=VanillaMuon(model.parameters(), **asdict(muon_config)),
+                                        n_epochs=frozen_optim_config.n_epochs,
+                                        model=model,
+                                        loss_fn=loss_fn,
+                                        dataloader=dataloader,
+                                        lr=muon_config.lr)
+    elif optim == "frozen_adam":
+        optim = _construct_frozen_optim(optim=Adam(model.parameters(), **asdict(adam_config)),
+                                        n_epochs=frozen_optim_config.n_epochs,
+                                        model=model,
+                                        loss_fn=loss_fn,
+                                        dataloader=dataloader,
+                                        lr=adam_config.lr)
+    elif optim == "sgd":
+        optim = SGD(model.parameters(),
+                    **asdict(sgd_config))
         
     # Set the device
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -228,10 +250,19 @@ def main(optim:ValidOptim,
         results["n_epochs"] = n_epochs
         results["seed"] = seed
         # Add the configs
-        results["mlp"] = asdict(mlp_config)
-        results["muon"] = asdict(muon_config)
-        results["rmsprop"] = asdict(rmsprop_config)
-        results["cifar10"] = asdict(cifar10_config)
+        if model_name == "mlp":
+            results["mlp"] = asdict(mlp_config)
+        if optim_name in ["muon", "frozen_muon"]:
+            results["muon"] = asdict(muon_config)
+        elif optim_name == "rmsprop":
+            results["rmsprop"] = asdict(rmsprop_config)
+        elif optim_name in ["adam", "frozen_adam"]:
+            results["adam"] = asdict(adam_config)
+        if "frozen" in optim_name:
+            results["frozen_optim"] = asdict(frozen_optim_config)
+
+        if dataset_name == "cifar10":
+            results["cifar10"] = asdict(cifar10_config)
         # Add the measurments results
         for tracker in trackers:
             results[tracker]["measurements"] = trackers[tracker].measurements
@@ -267,6 +298,34 @@ def _save_result_figures(results, experiment_dir:str):
     _save_measurement_results(results["val_loss_history"], "val_loss_history", experiment_dir)
     _save_measurement_results(results["train_acc_history"], "train_acc_history", experiment_dir)
     _save_measurement_results(results["val_acc_history"], "val_acc_history", experiment_dir)
+
+
+def _construct_frozen_optim(optim, n_epochs, dataloader, model, loss_fn, lr):
+    model_old_params = [p.detach().clone() for p in model.parameters()]
+
+    pbar = tqdm(range(n_epochs), desc="Constructing frozen preconditioner")
+
+    # Train for n_epochs with the given optimizer
+    for epoch in pbar:
+        for (inputs, targets) in dataloader:
+            optim.zero_grad()
+
+            predictions = model(inputs)
+
+            loss = loss_fn(predictions, targets)
+
+            loss.backward()
+
+            optim.step()
+        
+    # Fetch preconditioner
+    optim_frozen = fetch_frozen_optim(optim, model, lr)
+
+    # Reset model parameters
+    for p, p_old in zip(model.parameters(), model_old_params):
+        p.data = p_old
+
+    return optim_frozen
 
 
 def _save_measurement_results(measurements, name:str, experiment_dir:str, thresh:float=None, n_warmup:int=0, freq:int=1):

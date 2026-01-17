@@ -10,9 +10,9 @@ from torch.nn import Module
 
 class AdamPreconditioner(Preconditioner):
     def __init__(self, optim:Adam=None, model:Module=None):
-        super().__init__(optim, model)
+        super().__init__(optim, model, None)
 
-    def compute_p(self, optim:Adam, model:Module):
+    def compute_p(self, optim:Adam, model:Module, params_old=None):
         params = [p for p in model.parameters() if p.requires_grad]
         self.P_dict = {}
         eps = optim.param_groups[0]["eps"]

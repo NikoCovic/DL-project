@@ -202,3 +202,11 @@ D^pv &= \left( \bigoplus_{i=1}^L (I \otimes P_i) \right) v \\
 
 \end{aligned}
 $$
+
+$$
+\begin{aligned}
+
+
+
+\end{aligned}
+$$

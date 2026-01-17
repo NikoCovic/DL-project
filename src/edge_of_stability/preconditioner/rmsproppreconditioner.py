@@ -9,15 +9,16 @@ from torch.nn import Module
 
 class RMSpropPreconditioner(Preconditioner):
     def __init__(self, optim:RMSprop=None, model:Module=None):
-        super().__init__(optim, model)
+        super().__init__(optim, model, None)
 
-    def compute_p(self, optim:RMSprop, model:Module):
+    def compute_p(self, optim:RMSprop, model:Module, params_old:Iterable[Parameter]=None):
         params = [p for p in model.parameters() if p.requires_grad]
         self.P_dict = {}
+        eps = optim.param_groups[0]["eps"]
         for p in params:
             S = optim.state[p]["square_avg"].detach().clone()
             self.P_dict[p] = {}
-            self.P_dict[p]["P"] = 1/(torch.sqrt(S) + 1e-8)
+            self.P_dict[p]["P"] = 1/(torch.sqrt(S) + eps)
             #print("Spectral norm of P ", torch.max(self.P_dict[p]["P"]))
 
     def copy(self):

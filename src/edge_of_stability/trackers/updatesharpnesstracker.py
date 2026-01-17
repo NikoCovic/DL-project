@@ -2,7 +2,7 @@ from .tracker import Tracker
 from src.edge_of_stability.hessian import Hessian
 from torch.optim import Optimizer
 from torch.nn import Module
-from src.edge_of_stability.preconditioner import fetch_preconditioner
+from src.edge_of_stability.preconditioner_factory import fetch_preconditioner
 
 
 class UpdateSharpnessTracker(Tracker):
@@ -13,7 +13,7 @@ class UpdateSharpnessTracker(Tracker):
         self.model = model
 
     def _update(self):
-        preconditioner = fetch_preconditioner(self.optim, self.model)
+        preconditioner = fetch_preconditioner(self.optim, self.model, self.hessian.params)
         lr = self.optim.param_groups[0]["lr"]
         es = self.hessian.update_eigenvalues(lr=lr, preconditioner=preconditioner)
         return abs(es[0])
