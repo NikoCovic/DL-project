@@ -327,6 +327,7 @@ def main():
     rho_sharp_values: dict[float, list[float]] = {float(r): [] for r in rho_values}
     optimizer_rho_gap: dict[str, dict[float, list[float]]] = {}
     optimizer_rho_sharp: dict[str, dict[float, list[float]]] = {}
+    optimizer_rho_paths: dict[str, dict[float, list[str]]] = {}
 
     for m in tqdm(models, desc="models"):
         print(f"model: {m['path']}")
@@ -381,6 +382,9 @@ def main():
             optimizer_rho_sharp.setdefault(optimizer_name, {}).setdefault(rho, []).append(
                 avg_sharp
             )
+            optimizer_rho_paths.setdefault(optimizer_name, {}).setdefault(rho, []).append(
+                str(m["path"])
+            )
 
     best_rho = None
     best_tau = float("nan")
@@ -389,6 +393,33 @@ def main():
         rho = float(rho)
         tau = kendall_tau_b(rho_gap_values[rho], rho_sharp_values[rho])
         print(f"rho={rho}: kendall_tau={tau}")
+
+        header = (
+            f"{'Optimizer':<16} {'Row':<12} {'Kendall_tau':>12} "
+            f"{'Pearson_r':>12} {'Gap':>12} {'Sharpness':>12} Model"
+        )
+        print(header)
+        for opt_name in sorted(optimizer_rho_gap.keys()):
+            gaps = optimizer_rho_gap.get(opt_name, {}).get(rho, [])
+            sharps = optimizer_rho_sharp.get(opt_name, {}).get(rho, [])
+            paths = optimizer_rho_paths.get(opt_name, {}).get(rho, [])
+            for i, (gap, sharp, path) in enumerate(zip(gaps, sharps, paths), start=1):
+                print(
+                    f"{opt_name:<16} {'run':<12} {'':>12} {'':>12} "
+                    f"{gap:>12.6f} {sharp:>12.6f} {path}"
+                )
+
+            opt_tau = kendall_tau_b(gaps, sharps)
+            opt_pr = pearson_r(gaps, sharps)
+            print(
+                f"{opt_name:<16} {'kendall_tau':<12} {opt_tau:>12.6f} "
+                f"{'':>12} {'':>12} {'':>12}"
+            )
+            print(
+                f"{opt_name:<16} {'pearson_r':<12} {'':>12} "
+                f"{opt_pr:>12.6f} {'':>12} {'':>12}"
+            )
+
         if not math.isnan(tau) and abs(tau) > best_abs_tau:
             best_abs_tau = abs(tau)
             best_tau = tau
