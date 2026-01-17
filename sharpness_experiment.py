@@ -209,29 +209,37 @@ def main():
 
     run_dirs = []
 
-    print("Running Normalized Muon Experiments...")
-    norm_muon_accs, norm_muon_logs, dirs = train_distributed(experiment_name, gpus, runs_per_gpu, NormalizedMuonConfig(), experiment_config)
+    print("Running Fixed Normalized Muon Experiments...")
+    norm_muon_accs, norm_muon_logs, dirs = train_distributed(experiment_name, gpus, runs_per_gpu, NormalizedMuonConfig(lr_scheduler=False, muon_lr=0.02998, head_lr=0.2867, bias_lr=0.001469), experiment_config)
     run_dirs.extend(dirs)
 
-    print("Running Vanilla Muon Experiments...")
-    vanilla_muon_accs, vanilla_muon_logs, dirs = train_distributed(experiment_name, gpus, runs_per_gpu, VanillaMuonConfig(), experiment_config)
+    print("Running Fixed SGD Experiments...")
+    sgd_accs, sgd_logs, dirs = train_distributed(experiment_name, gpus, runs_per_gpu, SGDConfig(lr_scheduler=False, head_lr=0.01, bias_lr=0.01, filter_lr=0.01), experiment_config)
     run_dirs.extend(dirs)
 
-    print("Running SGD Experiments...")
-    sgd_accs, sgd_logs, dirs = train_distributed(experiment_name, gpus, runs_per_gpu, SGDConfig(), experiment_config)
-    run_dirs.extend(dirs)
+
+    # print("Running Normalized Muon Experiments...")
+    # norm_muon_accs, norm_muon_logs, dirs = train_distributed(experiment_name, gpus, runs_per_gpu, NormalizedMuonConfig(), experiment_config)
+    # run_dirs.extend(dirs)
+
+    # print("Running Vanilla Muon Experiments...")
+    # vanilla_muon_accs, vanilla_muon_logs, dirs = train_distributed(experiment_name, gpus, runs_per_gpu, VanillaMuonConfig(), experiment_config)
+    # run_dirs.extend(dirs)
+
+    # print("Running SGD Experiments...")
+    # sgd_accs, sgd_logs, dirs = train_distributed(experiment_name, gpus, runs_per_gpu, SGDConfig(), experiment_config)
+    # run_dirs.extend(dirs)
 
     # print("Running Adam Experiments...")
-    adam_accs, adam_logs, dirs = train_distributed(experiment_name, gpus, runs_per_gpu, AdamConfig(), experiment_config)
-    run_dirs.extend(dirs)
+    # adam_accs, adam_logs, dirs = train_distributed(experiment_name, gpus, runs_per_gpu, AdamConfig(), experiment_config)
+    # run_dirs.extend(dirs)
 
     print_aggregated_metrics("Normalized Muon", norm_muon_accs, norm_muon_logs)
-    print_aggregated_metrics("Vanilla Muon", vanilla_muon_accs, vanilla_muon_logs)
+    # print_aggregated_metrics("Vanilla Muon", vanilla_muon_accs, vanilla_muon_logs)
     print_aggregated_metrics("SGD", sgd_accs, sgd_logs)
-    print_aggregated_metrics("Adam", adam_accs, adam_logs)
+    # print_aggregated_metrics("Adam", adam_accs, adam_logs)
 
     print(f"See https://wandb.ai/padlex/cifar10-airbench -> {experiment_name} for detailed results.")
-    # print("Run `wandb sync --sync-all` to upload offline logs.")
 
     print("Syncing all runs to wandb in parallel...")
     if experiment_config.wandb_mode == "offline":

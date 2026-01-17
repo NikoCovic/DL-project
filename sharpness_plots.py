@@ -125,7 +125,9 @@ def plot_optimizer_correlation(df, x_col, y_col='gap', epoch=None):
 
 
 def main():
-    experiment_group="370aad54"
+    experiment_group="370aad54"  # Original 64 runs per optimizer
+    experiment_group="cf7f9af4"  # 64 runs Normalized Muon and SGD with fixed lrs, only 8 epochs
+    experiment_group="05e85a1d"  # 20 runs per optimizer, 32 epochs, fixed lrs
     # df = fetch_group_logs(
     #     entity="padlex", 
     #     project_name="cifar10-airbench", 
@@ -142,9 +144,9 @@ def main():
     # plot_optimizer_correlation(df, x_col='sam_sharpness', y_col='gap', epoch=None)
     # plot_optimizer_correlation(df, x_col='adaptive_sharpness', y_col='gap', epoch=None)
 
-    # plot_optimizer_correlation(df, x_col='hessian', y_col='gap', epoch=16)
-    plot_optimizer_correlation(df, x_col='sam_sharpness', y_col='gap', epoch=16)
-    plot_optimizer_correlation(df, x_col='adaptive_sharpness', y_col='gap', epoch=16)
+    plot_optimizer_correlation(df, x_col='hessian', y_col='gap', epoch=1)
+    plot_optimizer_correlation(df, x_col='sam_sharpness', y_col='gap', epoch=1)
+    plot_optimizer_correlation(df, x_col='adaptive_sharpness', y_col='gap', epoch=1)
 
 
 if __name__ == "__main__":

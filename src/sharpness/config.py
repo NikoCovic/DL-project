@@ -24,7 +24,6 @@ class ExperimentConfig:
     metric_batch: Any
     metric_dataloader: str
     metric_batch_size: int
-    hessian_num_batches: int
     metrics: list[str]
     epochs_per_run: int
     dataset_path: Path
@@ -67,7 +66,6 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
     number_gpus = int(data.get("number_gpus"))
     runs_per_gpu = int(data.get("runs_per_gpu"))
     metric_batch_size = int(data.get("metric_batch_size"))
-    hessian_num_batches = int(data.get("hessian_num_batches"))
     metrics = list(data.get("metrics", []))
     epochs_per_run = int(data.get("epochs_per_run"))
     wandb_mode = str(data["wandb_mode"])
@@ -91,8 +89,6 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
         raise ValueError("config.runs_per_gpu must be > 0")
     if metric_batch_size <= 0:
         raise ValueError("config.metric_batch_size must be > 0")
-    if hessian_num_batches <= 0:
-        raise ValueError("config.hessian_num_batches must be > 0")
     if epochs_per_run <= 0:
         raise ValueError("config.epochs_per_run must be > 0")
 
@@ -114,7 +110,6 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
         metric_batch=metric_batch,
         metric_dataloader=metric_dataloader,
         metric_batch_size=metric_batch_size,
-        hessian_num_batches=hessian_num_batches,
         metrics=metrics,
         wandb_project=wandb_project,
         epochs_per_run=epochs_per_run,
