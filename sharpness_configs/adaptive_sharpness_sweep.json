@@ -3,13 +3,14 @@
   "dataset_path": "data/cifar10",
   "split": "train",
   "batch_size": 512,
+  "subset_batches": 5,
+
   "device": "cuda",
   "output_path": "results/adaptive_sharpness_sweep_results.grid.csv",
   "parameters": {
-    "rho": [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0],
-    "eta": [0.001, 0.003, 0.01, 0.03, 0.1],
-    "ascent_steps": [5, 10, 20],
-    "ascent_lr": [0.05, 0.1],
+    "rho": [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 1.5, 2.0, 2.5],
+    "eta": 0.01,
+    "ascent_steps": 8,
     "use_eval_mode": true
   }
 }

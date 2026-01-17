@@ -44,6 +44,8 @@ def adaptive_sharpness_implementation(
     assert rho >= 0.0
     assert ascent_steps >= 1
 
+    # ascent_lr = rho / ascent_steps
+
     x, y = batch
 
     # preserve mode

@@ -1,6 +1,6 @@
 import argparse
-import csv
 import json
+import math
 import sys
 from dataclasses import dataclass
 from itertools import product
@@ -8,7 +8,7 @@ from pathlib import Path
 
 import torch
 import torch.nn.functional as F
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 # Allow running as a script without installing the package.
 sys.path.append(str(Path(__file__).resolve().parent))
@@ -50,7 +50,7 @@ def load_all_checkpoints(model_files: list[Path]) -> list[dict]:
     ckpts = []
     for p in tqdm(model_files, desc="loading checkpoints"):
         ckpts.append({"path": str(p), "data": torch.load(p, map_location="cpu")})
-        break # TODO: REMOVE
+        # break # TODO: REMOVE
     return ckpts
 
 
@@ -216,6 +216,43 @@ def maybe_subset_batches(
     return x[:take], y[:take]
 
 
+def kendall_tau_b(x: list[float], y: list[float]) -> float:
+    if len(x) != len(y):
+        raise ValueError("kendall_tau_b requires lists of the same length")
+    n = len(x)
+    if n < 2:
+        return float("nan")
+
+    concordant = 0
+    discordant = 0
+    ties_x = 0
+    ties_y = 0
+
+    for i in range(n - 1):
+        xi = x[i]
+        yi = y[i]
+        for j in range(i + 1, n):
+            dx = xi - x[j]
+            dy = yi - y[j]
+            if dx == 0 and dy == 0:
+                continue
+            if dx == 0:
+                ties_x += 1
+                continue
+            if dy == 0:
+                ties_y += 1
+                continue
+            if dx * dy > 0:
+                concordant += 1
+            else:
+                discordant += 1
+
+    denom = math.sqrt((concordant + discordant + ties_x) * (concordant + discordant + ties_y))
+    if denom == 0:
+        return float("nan")
+    return (concordant - discordant) / denom
+
+
 def main():
     parser = argparse.ArgumentParser(description="Adaptive sharpness grid sweep over saved checkpoints")
     parser.add_argument("--config", required=True, help="Path to JSON config")
@@ -246,53 +283,78 @@ def main():
     )
 
     combos = as_grid(cfg.params)
-    cfg.output_path.parent.mkdir(parents=True, exist_ok=True)
+    if "rho" not in cfg.params:
+        raise ValueError("Config parameters must include 'rho' for correlation reporting")
 
-    hyperparam_keys = list(cfg.params.keys())
-    fieldnames = [
-        "checkpoint",
-        "train_loss",
-        "test_loss",
-        "train_test_loss_gap",
-        "train_acc",
-        "test_acc",
-        "train_test_acc_gap",
-        "adaptive_sharpness",
-        *hyperparam_keys,
-    ]
+    rho_values = cfg.params["rho"]
+    if not isinstance(rho_values, list):
+        rho_values = [rho_values]
+    rho_values = sorted(set(rho_values))
 
-    with cfg.output_path.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
+    rho_gap_values: dict[float, list[float]] = {float(r): [] for r in rho_values}
+    rho_sharp_values: dict[float, list[float]] = {float(r): [] for r in rho_values}
 
-        for m in tqdm(models, desc="models"):
-            gap = train_test_gaps(
+    for m in tqdm(models, desc="models"):
+        print(f"model: {m['path']}")
+        gap = train_test_gaps(
+            m["model"],
+            x_train,
+            y_train,
+            x_test,
+            y_test,
+            cfg.device,
+            cfg.batch_size,
+        )
+        gap_value = float(gap["train_test_loss_gap"])
+
+        rho_sums = {float(r): 0.0 for r in rho_values}
+        rho_counts = {float(r): 0 for r in rho_values}
+
+        for combo in tqdm(combos, desc="hyperparams", leave=False):
+            if "ascent_steps" not in combo:
+                raise ValueError("Config parameters must include 'ascent_steps' to derive ascent_lr")
+            rho = float(combo["rho"])
+            ascent_steps = int(combo["ascent_steps"])
+            if ascent_steps <= 0:
+                raise ValueError("ascent_steps must be a positive integer")
+            ascent_lr = rho / ascent_steps
+            combo_with_lr = {**combo, "ascent_lr": ascent_lr}
+
+            adaptive_cfg = AdaptiveSharpnessConfig(**combo_with_lr)
+            val = adaptive_sharpness_on_batches(
                 m["model"],
-                x_train,
-                y_train,
-                x_test,
-                y_test,
+                x_sweep,
+                y_sweep,
+                adaptive_cfg,
                 cfg.device,
                 cfg.batch_size,
             )
-            for combo in tqdm(combos, desc="hyperparams", leave=False):
-                adaptive_cfg = AdaptiveSharpnessConfig(**combo)
-                val = adaptive_sharpness_on_batches(
-                    m["model"],
-                    x_sweep,
-                    y_sweep,
-                    adaptive_cfg,
-                    cfg.device,
-                    cfg.batch_size,
-                )
 
-                row = {
-                    "checkpoint": m["path"],
-                    **gap,
-                    "adaptive_sharpness": val,
-                    **combo,
-                }
-                writer.writerow(row)
+            rho_sums[rho] += float(val)
+            rho_counts[rho] += 1
+
+        for rho in rho_values:
+            rho = float(rho)
+            if rho_counts[rho] == 0:
+                continue
+            avg_sharp = rho_sums[rho] / rho_counts[rho]
+            rho_gap_values[rho].append(gap_value)
+            rho_sharp_values[rho].append(avg_sharp)
+
+    best_rho = None
+    best_tau = float("-inf")
+    for rho in rho_values:
+        rho = float(rho)
+        tau = kendall_tau_b(rho_gap_values[rho], rho_sharp_values[rho])
+        print(f"rho={rho}: kendall_tau={tau}")
+        if not math.isnan(tau) and tau > best_tau:
+            best_tau = tau
+            best_rho = rho
+
+    if best_rho is None:
+        print("best_rho: n/a (insufficient data)")
+    else:
+        print(f"best_rho={best_rho} (kendall_tau={best_tau})")
 
 
 if __name__ == "__main__":
