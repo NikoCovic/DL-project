@@ -4,12 +4,12 @@
   "split": "train",
   "batch_size": 512,
   "device": "cuda",
-  "output_path": "adaptive_sharpness_sweep_results.sample.jsonl",
+  "output_path": "results/adaptive_sharpness_sweep_results.grid.csv",
   "parameters": {
-    "rho": [0.05, 0.1, 0.2],
-    "eta": [0.001, 0.01],
-    "ascent_steps": 20,
-    "ascent_lr": 0.1,
-    "use_eval_mode": false
+    "rho": [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0],
+    "eta": [0.001, 0.003, 0.01, 0.03, 0.1],
+    "ascent_steps": [5, 10, 20],
+    "ascent_lr": [0.05, 0.1],
+    "use_eval_mode": true
   }
 }

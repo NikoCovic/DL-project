@@ -1,4 +1,5 @@
 import argparse
+import csv
 import json
 import sys
 from dataclasses import dataclass
@@ -7,7 +8,6 @@ from pathlib import Path
 
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
 # Allow running as a script without installing the package.
@@ -15,6 +15,7 @@ sys.path.append(str(Path(__file__).resolve().parent))
 
 from src.sharpness.airbench94_muon import CifarNet, CIFAR_MEAN, CIFAR_STD
 from src.sharpness import adaptive_sharpness
+from src.sharpness.config import AdaptiveSharpnessConfig
 
 
 @dataclass(frozen=True)
@@ -86,22 +87,46 @@ def load_cifar_tensors(dataset_path: Path, split: str) -> tuple[torch.Tensor, to
     return x, y
 
 
-def adaptive_sharpness_over_dataset(
-
+def adaptive_sharpness_on_batch(
     model: torch.nn.Module,
-    dataloader: DataLoader,
-    adaptive_cfg,
-    device: str,
+    x: torch.Tensor,
+    y: torch.Tensor,
+    adaptive_cfg: AdaptiveSharpnessConfig,
 ) -> float:
-    total = 0.0
-    count = 0
-    for x, y in tqdm(dataloader, desc="dataset", leave=False):
-        x = x.to(device)
-        y = y.to(device)
-        val = adaptive_sharpness(model, F.cross_entropy, (x, y), adaptive_cfg)
-        total += float(val) * int(x.shape[0])
-        count += int(x.shape[0])
-    return total / count
+    return float(adaptive_sharpness(model, F.cross_entropy, (x, y), adaptive_cfg))
+
+
+def stats_on_batch(model: torch.nn.Module, x: torch.Tensor, y: torch.Tensor) -> dict:
+    """Return mean loss and accuracy over a (single) batch."""
+    was_training = model.training
+    model.eval()
+
+    with torch.no_grad():
+        logits = model(x)
+        loss = F.cross_entropy(logits, y)
+        pred = logits.argmax(dim=1)
+        acc = float((pred == y).float().mean().item())
+
+    if was_training:
+        model.train()
+
+    return {
+        "loss": float(loss.item()),
+        "acc": float(acc),
+    }
+
+
+def train_test_gaps(model: torch.nn.Module, x_train: torch.Tensor, y_train: torch.Tensor, x_test: torch.Tensor, y_test: torch.Tensor) -> dict:
+    train_stats = stats_on_batch(model, x_train, y_train)
+    test_stats = stats_on_batch(model, x_test, y_test)
+    return {
+        "train_loss": float(train_stats["loss"]),
+        "test_loss": float(test_stats["loss"]),
+        "train_test_loss_gap": float(train_stats["loss"] - test_stats["loss"]),
+        "train_acc": float(train_stats["acc"]),
+        "test_acc": float(test_stats["acc"]),
+        "train_test_acc_gap": float(train_stats["acc"] - test_stats["acc"]),
+    }
 
 
 def parse_config(raw: dict) -> SweepConfig:
@@ -110,7 +135,7 @@ def parse_config(raw: dict) -> SweepConfig:
     split = str(raw.get("split", "train"))
     batch_size = int(raw.get("batch_size", 512))
     device = str(raw.get("device", "cuda"))
-    output_path = Path(raw.get("output_path", "adaptive_sharpness_sweep_results.jsonl"))
+    output_path = Path(raw.get("output_path", "adaptive_sharpness_sweep_results.csv"))
 
     params = raw.get("parameters")
     if params is None:
@@ -143,33 +168,51 @@ def main():
     checkpoints = load_all_checkpoints(model_files)
     models = load_all_models(checkpoints, cfg.device)
 
-    x, y = load_cifar_tensors(cfg.dataset_path, cfg.split)
-    dataloader = DataLoader(
-        TensorDataset(x, y),
-        batch_size=cfg.batch_size,
-        shuffle=False,
-        drop_last=False,
-    )
+    # Load full CIFAR splits onto the GPU once (single-batch evaluation).
+    x_train, y_train = load_cifar_tensors(cfg.dataset_path, "train")
+    x_test, y_test = load_cifar_tensors(cfg.dataset_path, "test")
+    x_sweep, y_sweep = load_cifar_tensors(cfg.dataset_path, cfg.split)
+
+    x_train = x_train.to(cfg.device, non_blocking=True)
+    y_train = y_train.to(cfg.device, non_blocking=True)
+    x_test = x_test.to(cfg.device, non_blocking=True)
+    y_test = y_test.to(cfg.device, non_blocking=True)
+    x_sweep = x_sweep.to(cfg.device, non_blocking=True)
+    y_sweep = y_sweep.to(cfg.device, non_blocking=True)
 
     combos = as_grid(cfg.params)
     cfg.output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with cfg.output_path.open("w", encoding="utf-8") as f:
-        for combo in tqdm(combos, desc="hyperparams"):
-            # Just a tiny object with the fields adaptive_sharpness() expects.
-            adaptive_cfg = type("AdaptiveCfg", (), combo)
+    hyperparam_keys = list(cfg.params.keys())
+    fieldnames = [
+        "checkpoint",
+        "train_loss",
+        "test_loss",
+        "train_test_loss_gap",
+        "train_acc",
+        "test_acc",
+        "train_test_acc_gap",
+        "adaptive_sharpness",
+        *hyperparam_keys,
+    ]
 
-            per_model = []
-            for m in tqdm(models, desc="models", leave=False):
-                val = adaptive_sharpness_over_dataset(m["model"], dataloader, adaptive_cfg, cfg.device)
-                per_model.append(val)
+    with cfg.output_path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
 
-                row = {"checkpoint": m["path"], "adaptive_sharpness": val, **combo}
-                f.write(json.dumps(row) + "\n")
-                f.flush()
+        for m in tqdm(models, desc="models"):
+            gap = train_test_gaps(m["model"], x_train, y_train, x_test, y_test)
+            for combo in tqdm(combos, desc="hyperparams", leave=False):
+                adaptive_cfg = AdaptiveSharpnessConfig(**combo)
+                val = adaptive_sharpness_on_batch(m["model"], x_sweep, y_sweep, adaptive_cfg)
 
-            mean_val = sum(per_model) / len(per_model)
-            print({"mean_adaptive_sharpness": mean_val, **combo})
+                row = {
+                    "checkpoint": m["path"],
+                    **gap,
+                    "adaptive_sharpness": val,
+                    **combo,
+                }
+                writer.writerow(row)
 
 
 if __name__ == "__main__":
