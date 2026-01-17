@@ -33,7 +33,7 @@ class EOSVisualizer():
                             }
 
 
-    def plot_train_loss(self, optim_names=["adam", "rmsprop", "muon"], model_size='big', yscale='linear', fig_size=3.0):
+    def plot_train_loss(self, optim_names=["adam", "rmsprop", "muon"], model_size='big', yscale='linear', fig_size=4.0):
         plt.rcParams.update(self.params_plot)
         for optim_name in optim_names:
             assert(optim_name in self.exp_dict.keys())
@@ -64,7 +64,7 @@ class EOSVisualizer():
             print(f"Figure saved under: {filename}")
 
 
-    def plot_sharpness(self, optim_names=["adam", "rmsprop", "muon"], model_size='big', yscale='linear', fig_size=3.0):
+    def plot_sharpness(self, optim_names=["adam", "rmsprop", "muon"], model_size='big', yscale='linear', fig_size=4.0):
         plt.rcParams.update(self.params_plot)
         for optim_name in optim_names:
             assert(optim_name in self.exp_dict.keys())
@@ -86,7 +86,7 @@ class EOSVisualizer():
             ax.set_xlabel(r'Epochs')
             ax.set_ylabel(r'Sharpness')
             ax.set_yscale(yscale)
-            ax.legend(loc='upper left', frameon=True, fancybox=False, edgecolor='black', framealpha=1)
+            ax.legend(loc='best', frameon=True, fancybox=False, edgecolor='black', framealpha=1)
             ax.set_title(f" Sharpness {optim_name.capitalize()} {model_size.capitalize()}")
             plt.tight_layout()
             filename = f"plots/{model_size}/sharpness_{optim_name}_{model_size}_{yscale}.pdf"
