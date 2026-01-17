@@ -1,10 +1,10 @@
 {
 	"wandb_project": "cifar10-airbench",
 	"experiment_id": "auto",
-	"wandb_mode": "online",
+	"wandb_mode": "offline",
 
 	"number_gpus": 1,
-	"runs_per_gpu": 5,
+	"runs_per_gpu": 64,
 	
 	"metric_dataloader": "AirBenchCifarLoader",
 	"dataset_path": "data/cifar10",

@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=adaptive_sharpness_sweep
 #SBATCH --account=deep_learning
-#SBATCH --time=01:00:00
+#SBATCH --time=02:00:00
 #SBATCH --gpus 5060ti:1
 #SBATCH --output=slurm/out/%x/%j.log
 #SBATCH --error=slurm/out/%x/%j.log
@@ -12,4 +12,6 @@ set -euo pipefail
 nvidia-smi
 
 # Run the script
-uv run adaptive_sharpness_sweep.py --config sharpness_configs/adaptive_sharpness_sweep_test.json
+uv run --python 3.13.8 adaptive_sharpness_sweep.py \
+	--config sharpness_configs/adaptive_sharpness_sweep.json \
+	"$@"
