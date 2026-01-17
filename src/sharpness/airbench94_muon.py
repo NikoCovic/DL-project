@@ -536,7 +536,7 @@ def evaluate(model, loader, tta_level=0):
 #                Training                  #
 ############################################
 
-def train(run, model, experiment_config, optimizer_config, epochs=8, verbose=False, log_epoch_metrics_callback=None):
+def train(run, model, experiment_config, optimizer_config, epochs=8, verbose=False, log_epoch_metrics_callback=None, use_scheduler=True):
     batch_size = optimizer_config.batch_size
     bias_lr = optimizer_config.bias_lr
     head_lr = optimizer_config.head_lr
@@ -597,14 +597,15 @@ def train(run, model, experiment_config, optimizer_config, epochs=8, verbose=Fal
             F.cross_entropy(outputs, labels, label_smoothing=0.2, reduction="sum").backward()
             
             # Update learning rates
-            for opt in optimizers:
-                for i, group in enumerate(opt.param_groups):
-                    # Check if this is the whiten bias group (first group in first optimizer)
-                    is_whiten_bias = (opt == optimizers[0] and i == 0)
-                    if is_whiten_bias:
-                        group["lr"] = group["initial_lr"] * (1 - step / whiten_bias_train_steps)
-                    else:
-                        group["lr"] = group["initial_lr"] * (1 - step / total_train_steps)
+            if use_scheduler:
+                for opt in optimizers:
+                    for i, group in enumerate(opt.param_groups):
+                        # Check if this is the whiten bias group (first group in first optimizer)
+                        is_whiten_bias = (opt == optimizers[0] and i == 0)
+                        if is_whiten_bias:
+                            group["lr"] = group["initial_lr"] * (1 - step / whiten_bias_train_steps)
+                        else:
+                            group["lr"] = group["initial_lr"] * (1 - step / total_train_steps)
             
             for opt in optimizers:
                 opt.step()
@@ -669,7 +670,7 @@ if __name__ == "__main__":
 
     # 2. Test Muon
     train_and_print(model, experiment_config, NormalizedMuonConfig(), "NormalizedMuon", epochs=epocs, runs=runs)
-    train_and_print(model, experiment_config, VanillaMuonConfig(), "VanillaMuon", epochs=epocs, runs=runs)
+    # train_and_print(model, experiment_config, VanillaMuonConfig(), "VanillaMuon", epochs=epocs, runs=runs)
 
     # tuned_muon_config_8 = MuonConfig(muon_lr=0.2574, head_lr=0.7136, muon_momentum=0.6576, bias_lr=0.0853, sgd_momentum=0.8802)
     # train_and_print(model, experiment_config, tuned_muon_config_8, "Tuned Muon 8", epochs=epocs, runs=runs)
