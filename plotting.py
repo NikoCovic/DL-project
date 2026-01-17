@@ -33,12 +33,12 @@ class EOSVisualizer():
                             }
 
 
-    def plot_train_loss(self, optim_names=["adam", "rmsprop", "muon"], fig_size=3.0):
+    def plot_train_loss(self, optim_names=["adam", "rmsprop", "muon"], model_size='', yscale='linear', fig_size=3.0):
         plt.rcParams.update(self.params_plot)
-        print("Plotting training loss history...")
         for optim_name in optim_names:
             assert(optim_name in self.exp_dict.keys())
             experiments = self.exp_dict[optim_name]
+            print(f"\nPlotting training loss history for {optim_name} {model_size} {yscale}...")
             if len(experiments) >= 1: 
                 fig, ax = plt.subplots(figsize=(1.61*fig_size, fig_size))
                 for experiment in experiments:
@@ -52,11 +52,13 @@ class EOSVisualizer():
                     ax.plot(x, train_loss_history, label=fr'$\eta = {lr}$')
                 ax.set_xlabel(r'Epochs')
                 ax.set_ylabel(r'Training loss')
+                ax.set_yscale(yscale)
                 ax.legend(loc='upper right', frameon=True, fancybox=False, edgecolor='black', framealpha=1)
+                ax.set_title(f"Adam {model_size.capitalize()} Training Loss")
                 # ax.spines['top'].set_visible(False)
                 # ax.spines['right'].set_visible(False)
                 plt.tight_layout()
-                filename = f"plots/train_loss_history_{optim_name}.pdf"
+                filename = f"plots/{model_size}/train_loss_history_{optim_name}_{model_size}_{yscale}.pdf"
                 directory = os.path.dirname(filename)
                 if directory:
                     os.makedirs(directory, exist_ok=True)
@@ -66,8 +68,27 @@ class EOSVisualizer():
 
 
 if __name__ == "__main__":
-    print("Creating plots")
 
-    exp_dict = {"adam":[], "rmsprop":["experiment-1768601045502916003"], "muon":[]}
-    eos_visualizer = EOSVisualizer(exp_dict)
-    eos_visualizer.plot_train_loss(optim_names=["rmsprop"])
+    big_exp_dict = {}
+    small_exp_dict = {}
+    for exp in os.listdir('experiments'):
+        if exp.endswith("small"):
+            size = "small"
+            base = exp[:-5]
+        else:
+            size = "big"
+            base = exp[:-3]        
+        optimizer_name = ''.join(c for c in base if c.isalpha())
+        target = small_exp_dict if size == "small" else big_exp_dict
+        target.setdefault(optimizer_name, []).append(exp)
+
+    print("\nExperiment dict 'big': ", big_exp_dict)
+    print("\nExperiment dict 'small': ", small_exp_dict)
+
+    print("\nCreating plots...")
+    for model_size in ['big', 'small']:
+        exp_dict = big_exp_dict if model_size == 'big' else small_exp_dict
+        eos_visualizer = EOSVisualizer(exp_dict)
+        eos_visualizer.plot_train_loss(optim_names=list(exp_dict.keys()), model_size=model_size, yscale='linear')
+        eos_visualizer.plot_train_loss(optim_names=list(exp_dict.keys()), model_size=model_size, yscale='log')
+    print("\nPlots complete.\n")
