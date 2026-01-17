@@ -15,3 +15,5 @@ cifar10
 wandb
 dataloaders
 slurm/out/*
+
+sharpness_experiments/
