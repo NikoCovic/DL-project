@@ -25,7 +25,7 @@ class AdamConfig:
 
 @dataclass
 class MLPConfig:
-    width:int = 200
+    width:int = 64
     n_hidden:int = 2
     activation:str = "tanh"
     bias:bool = True
@@ -34,7 +34,7 @@ class MLPConfig:
 @dataclass
 class CIFAR10Config:
     n_classes:int = 10
-    n_samples_per_class:int = 500
+    n_samples_per_class:int = 200
     loss:Union[Literal["mse", "ce"]] = "mse"
 
 
@@ -42,3 +42,13 @@ class CIFAR10Config:
 class TrackerConfig:
     freq:int = 1
     n_warmup:int = 5
+
+
+@dataclass
+class FrozenOptimConfig:
+    n_epochs:int = 250
+
+
+@dataclass
+class SGDConfig:
+    lr:float = 2e-3

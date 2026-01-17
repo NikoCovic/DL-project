@@ -4,7 +4,6 @@ import torch.nn as nn
 from torch.nn.parameter import Parameter
 import torch
 from typing import Iterable
-import numpy as np
 
 
 class Hessian:
@@ -23,7 +22,7 @@ class Hessian:
 
     def commutativity_measure(self, preconditioner:Preconditioner, **algo_kwargs):
         # Store the current parameters
-        # model_params = self._set_model_params(self.params)
+        model_params = self._set_model_params(self.params)
 
         # Compute loss
         loss = self.loss_fn(self.model(self.inputs.to(self.device)), self.targets.to(self.device))
@@ -56,9 +55,22 @@ class Hessian:
 
         s = spectral_norm(operator, operator_transformed, **algo_kwargs)
 
-        # self._set_model_params(model_params)
+        self._set_model_params(model_params)
 
         return s
+    
+    def alignment(self, v:Iterable[Parameter], preconditioner:Preconditioner=None, **algo_kwargs):
+        model_params = self._set_model_params(self.params)
+
+        Pv = preconditioner.dot(v, inplace=False)
+        eigenvectors, _ = self.eigenvalues(preconditioner=preconditioner, **algo_kwargs)
+        eigenvector = eigenvectors[0]
+
+        cosine_similarity = params_dot_product(eigenvector, Pv) / (params_norm(eigenvector) * params_norm(Pv))
+
+        self._set_model_params(model_params)
+
+        return cosine_similarity.abs().cpu().item()
 
     def eigenvalues(self, preconditioner:Preconditioner=None, **algo_kwargs):
         # Set the model parameters to the current parameters
@@ -83,11 +95,34 @@ class Hessian:
             PsqHPsqv = HPsqv if preconditioner is None else preconditioner_sqrt.dot(HPsqv)
             return PsqHPsqv
         operator = TorchLinearOperator(mv, params)
-        eigenvalues, eigenvectors = power_iteration_eigenvalues(operator, **algo_kwargs)
+        stability_constant = preconditioner.frobenius_norm() if preconditioner is not None else None
+        eigenvalues, eigenvectors = power_iteration_eigenvalues(operator, stability_constant=stability_constant, **algo_kwargs)
+        if preconditioner is not None:
+            eigenvectors = [preconditioner_sqrt.dot(v, inplace=True) for v in eigenvectors]
         
         self._set_model_params(model_params)
 
         return eigenvectors, eigenvalues
+    
+    def rayleigh_quotient(self, v:Iterable[Parameter], preconditioner:Preconditioner=None):
+        model_params = self._set_model_params(self.params)
+
+        # Compute loss
+        loss = self.loss_fn(self.model(self.inputs.to(self.device)), self.targets.to(self.device))
+        # Fetch the parameters which require a gradient
+        params = [p for p in self.model.parameters() if p.requires_grad]
+        # Compute the gradient
+        grad = torch.autograd.grad(loss, params, create_graph=True)
+
+        Pm = params_normalize(preconditioner.dot(v, inplace=False), inplace=True) if preconditioner is not None else params_normalize(v, inplace=False)
+
+        HPm = self.hessian_vector_product(Pm, grad, params, inplace=False)
+        PHPm = HPm if preconditioner is None else preconditioner.dot(HPm, inplace=False)
+        q = params_dot_product(Pm, PHPm)
+
+        self._set_model_params(model_params)
+
+        return q.cpu().item()
     
     def spectral_norm(self, preconditioner:Preconditioner=None, **algo_kwargs):
         # Set the parameters to the current Hessian parameters

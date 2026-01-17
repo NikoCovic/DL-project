@@ -23,14 +23,16 @@ class CIFAR10Dataset(Dataset):
         targets = []
         class_counts = {i: 0 for i in range(n_classes)}
         
+        if n_classes == -1: n_classes = 10
+
         # Filter images and labels
         for img, target in cifar10:
-            if target < n_classes and class_counts[target] < n_samples_per_class:
+            if target < n_classes and (class_counts[target] < n_samples_per_class or n_samples_per_class == -1):
                 images.append(img)
                 targets.append(target)
                 class_counts[target] += 1
             
-            if all(count >= n_samples_per_class for count in class_counts.values()):
+            if all(n_samples_per_class != -1 and count >= n_samples_per_class for count in class_counts.values()):
                 break
 
         self.images = torch.stack(images).to(device)

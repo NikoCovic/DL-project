@@ -10,9 +10,9 @@ from torch.nn import Module
 
 class AdamPreconditioner(Preconditioner):
     def __init__(self, optim:Adam=None, model:Module=None):
-        super().__init__(optim, model)
+        super().__init__(optim, model, None)
 
-    def compute_p(self, optim:Adam, model:Module):
+    def compute_p(self, optim:Adam, model:Module, params_old=None):
         params = [p for p in model.parameters() if p.requires_grad]
         self.P_dict = {}
         eps = optim.param_groups[0]["eps"]
@@ -25,6 +25,7 @@ class AdamPreconditioner(Preconditioner):
 
             self.P_dict[p] = {}
             self.P_dict[p]["P"] = 1/((torch.sqrt(v/bias_correction2) + eps)*bias_correction1)
+            #print("Spectral norm of P ", torch.max(self.P_dict[p]["P"]))
 
     def copy(self):
         preconditioner_new = AdamPreconditioner()
@@ -45,3 +46,15 @@ class AdamPreconditioner(Preconditioner):
         for p_v, p in zip(v, self.P_dict):
             p_v.data.mul_(self.P_dict[p]["P"])
         return v
+    
+    def frobenius_norm(self):
+        val = 0
+        for p in self.P_dict:
+            val += torch.sum(self.P_dict[p]["P"].pow(2)).sqrt()
+        return val.cpu().item()
+    
+    def mul(self, c:float, inplace:bool=False) -> "AdamPreconditioner":
+        p = self if inplace else self.copy()
+        for p in p.P_dict:
+            p.P_dict[p]["P"].mul_(c)
+        return p

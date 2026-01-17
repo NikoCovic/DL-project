@@ -22,7 +22,7 @@ torch.backends.cudnn.benchmark = True
 #               Muon optimizer              #
 #############################################
 
-@torch.compile
+#@torch.compile
 def zeropower_via_newtonschulz5(G, steps=5, eps=1e-7):
     """
     Newton-Schulz iteration to compute the zeroth power / orthogonalization of G. We opt to use a
