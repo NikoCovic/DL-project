@@ -46,17 +46,17 @@ class EOSVisualizer():
                 lr = results[optim_name]['lr']
                 x = np.arange(0, results['n_epochs'])
                 ax.plot(x, results['train_loss_history'], label=fr'$\eta = {lr}$')
-            ax.set_xlabel(r'Epochs')
-            ax.set_ylabel(r'Training loss')
+            ax.set_xlabel(r'epochs')
+            ax.set_ylabel(r'training loss')
             ax.set_yscale(yscale)
             ax.legend(loc='upper right', frameon=True, fancybox=False, edgecolor='black', framealpha=1)
-            ax.set_title(f"{optim_name.capitalize()} {model_size.capitalize()} Training Loss")
+            # ax.set_title(f"{optim_name.capitalize()} {model_size.capitalize()} Training Loss")
             plt.tight_layout()
             filename = f"plots/{model_size}/train_loss_history/train_loss_history_{optim_name}_{model_size}_{yscale}.pdf"
             directory = os.path.dirname(filename)
             if directory:
                 os.makedirs(directory, exist_ok=True)
-            plt.savefig(filename, bbox_inches='tight')
+            plt.savefig(filename, format='pdf', bbox_inches='tight')
             plt.close()
             print(f"Figure saved under: {filename}")
 
@@ -75,16 +75,16 @@ class EOSVisualizer():
                 lr = results[optim_name]['lr']
                 x = np.arange(0 + sharp_dict['n_warmup'], results['n_epochs'], step=sharp_dict['freq'])
                 ax.plot(x, sharp_dict['measurements'], label=fr'$\eta = {lr}$')
-            ax.set_xlabel(r'Epochs')
-            ax.set_ylabel(r'Sharpness')
+            ax.set_xlabel(r'epochs')
+            ax.set_ylabel(r'$\lambda_{max}(H_t)$')
             ax.legend(loc='best', frameon=True, fancybox=False, edgecolor='black', framealpha=1)
-            ax.set_title(f"Sharpness {optim_name.capitalize()} {model_size.capitalize()}")
+            # ax.set_title(f"Sharpness {optim_name.capitalize()} {model_size.capitalize()}")
             plt.tight_layout()
             filename = f"plots/{model_size}/sharpness/sharpness_{optim_name}_{model_size}.pdf"
             directory = os.path.dirname(filename)
             if directory:
                 os.makedirs(directory, exist_ok=True)
-            plt.savefig(filename, bbox_inches='tight')
+            plt.savefig(filename, format='pdf', bbox_inches='tight')
             plt.close()
             print(f"Figure saved under: {filename}")
 
@@ -105,18 +105,18 @@ class EOSVisualizer():
                 x = np.arange(0 + eff_sharp_dict['n_warmup'], results['n_epochs'], step=eff_sharp_dict['freq'])
                 ax.axhline(thresh, linestyle="--", alpha=0.8, color=curr_color)
                 ax.plot(x, eff_sharp_dict['measurements'], label=fr'$\eta = {lr}$', color=curr_color)
-            ax.set_xlabel(r'Epochs')
-            ax.set_ylabel(r'Effective Sharpness')
+            ax.set_xlabel(r'epochs')
+            ax.set_ylabel(r'$\lambda_{max}(P_tH_t)$')
             if optim_name == "muon":
                 ax.set_ylim(bottom=min(eff_sharp_dict['measurements'][:200]) - 3000, top=None)
             ax.legend(loc='best', frameon=True, fancybox=False, edgecolor='black', framealpha=1)
-            ax.set_title(f"Effective Sharpness {optim_name.capitalize()} {model_size.capitalize()}")
+            # ax.set_title(f"Effective Sharpness {optim_name.capitalize()} {model_size.capitalize()}")
             plt.tight_layout()
             filename = f"plots/{model_size}/eff_sharpness/eff_sharpness_{optim_name}_{model_size}.pdf"
             directory = os.path.dirname(filename)
             if directory:
                 os.makedirs(directory, exist_ok=True)
-            plt.savefig(filename, bbox_inches='tight')
+            plt.savefig(filename, format='pdf', bbox_inches='tight')
             plt.close()
             print(f"Figure saved under: {filename}")
 
@@ -171,19 +171,19 @@ class EOSVisualizer():
                 ax_eff_sharp.plot(x_es, es_dict['measurements'], color=curr_color)
 
             # --- Formatting and Aesthetics ---
-            ax_loss.set_ylabel(r'Loss')
+            ax_loss.set_ylabel(r'training loss')
             ax_loss.set_yscale(yscale)
             
-            ax_sharp.set_ylabel(r'Sharpness')
+            ax_sharp.set_ylabel(r'$\lambda_{max}(H_t)$')
             
-            ax_eff_sharp.set_ylabel(r'Eff. Sharpness')
-            ax_eff_sharp.set_xlabel(r'Epochs')
+            ax_eff_sharp.set_ylabel(r'$\lambda_{max}(P_tH_t)$')
+            ax_eff_sharp.set_xlabel(r'epochs')
             if min(es_dict['measurements'][:200]) <= 1000: 
                 ax_eff_sharp.set_ylim(bottom=min(es_dict['measurements'][:200]) - 5000)
             else:
                 ax_eff_sharp.set_ylim(bottom=min(0, -0.10 * (min(es_dict['measurements']) - abs(min(es_dict['measurements'][:200])))))
             
-            ax_loss.set_title(f"{optim_name.capitalize()} {model_size.capitalize()} Training Dynamics", pad=15)
+            # ax_loss.set_title(f"{optim_name.capitalize()} {model_size.capitalize()} Training Dynamics", pad=15)
 
             ax_loss.legend(handles, labels, loc='best', frameon=True, fancybox=False, edgecolor='black')
             plt.tight_layout()
@@ -191,7 +191,7 @@ class EOSVisualizer():
             # Save the figure
             filename = f"plots/{model_size}/combined/combined_{optim_name}_{model_size}_{yscale}.pdf"
             os.makedirs(os.path.dirname(filename), exist_ok=True)
-            plt.savefig(filename, bbox_inches='tight')
+            plt.savefig(filename, format='pdf', bbox_inches='tight')
             plt.close()
             print(f"Combined figure saved: {filename}")
 
@@ -222,5 +222,5 @@ if __name__ == "__main__":
         eos_visualizer.plot_train_loss(optim_names=list(exp_dict.keys()), model_size=model_size, yscale='log', fig_size=fig_size)
         eos_visualizer.plot_sharpness(optim_names=list(exp_dict.keys()), model_size=model_size, fig_size=fig_size)
         eos_visualizer.plot_eff_sharpness(optim_names=list(exp_dict.keys()), model_size=model_size, fig_size=fig_size)
-        eos_visualizer.plot_combined_metrics(optim_names=list(exp_dict.keys()), model_size=model_size, fig_size=fig_size)
+        eos_visualizer.plot_combined_metrics(optim_names=list(exp_dict.keys()), model_size=model_size, fig_size=3.9)
     print("\nPlots complete.\n")
