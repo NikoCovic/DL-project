@@ -17,6 +17,9 @@
 		"ascent_lr": 0.1,
 		"use_eval_mode": true
 	},
-
-	"epochs_per_run": 16
+	"epochs_per_run": 16,
+	"checkpointing": {
+		"enabled": true,
+		"dir": "checkpoints"
+	}
 }
