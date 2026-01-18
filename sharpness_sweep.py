@@ -39,10 +39,9 @@ sgd_sweep = {
     'run_cap': NUM_RUNS,
     'metric': {'goal': 'maximize', 'name': 'val_accuracy'},
     'parameters': {
-        'bias_lr': {'min': 0.005, 'max': 0.1},
-        'head_lr': {'min': 0.005, 'max': 0.1},
-        'filter_lr': {'min': 0.005, 'max': 0.5},
-        'momentum': {'min': 0.0, 'max': 0.95},
+        'bias_lr': {'min': 0.001, 'max': 0.5},
+        'head_lr': {'min': 0.001, 'max': 0.5},
+        'filter_lr': {'min': 0.001, 'max': 0.5},
     }
 }
 
@@ -52,8 +51,8 @@ adam_sweep = {
     'run_cap': NUM_RUNS,
     'metric': {'goal': 'maximize', 'name': 'val_accuracy'},
     'parameters': {
-        'bias_lr': {'min': 0.005, 'max': 0.1},
-        'head_lr': {'min': 0.005, 'max': 0.1},
+        'bias_lr': {'min': 0.001, 'max': 0.5},
+        'head_lr': {'min': 0.001, 'max': 0.5},
         'filter_lr': {'min': 0.0001, 'max': 0.5},
         'beta1': {'min': 0.8, 'max': 0.99},
         'beta2': {'min': 0.99, 'max': 0.9999},
@@ -91,14 +90,14 @@ if __name__ == "__main__":
     # sweep_id = wandb.sweep(sweep=normalized_muon_sweep, project="normalized-muon-tuning")
     # optimizer = NormalizedMuonConfig
 
-    sweep_id = wandb.sweep(sweep=vanilla_muon_sweep, project="vanilla-muon-tuning")
-    optimizer = VanillaMuonConfig
+    # sweep_id = wandb.sweep(sweep=vanilla_muon_sweep, project="vanilla-muon-tuning")
+    # optimizer = VanillaMuonConfig
 
     # sweep_id = wandb.sweep(sweep=sgd_sweep, project="sgd-tuning")
     # optimizer = SGDConfig
 
-    # sweep_id = wandb.sweep(sweep=adam_sweep, project="adam-tuning")
-    # optimizer = AdamConfig
+    sweep_id = wandb.sweep(sweep=adam_sweep, project="adam-tuning")
+    optimizer = AdamConfig
     ctx = mp.get_context('spawn')
 
     processes = []

@@ -18,3 +18,4 @@ dataloaders
 slurm/out/*
 
 sharpness_experiments/
+checkpoints/

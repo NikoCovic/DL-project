@@ -213,8 +213,18 @@ def main():
     norm_muon_accs, norm_muon_logs, dirs = train_distributed(experiment_name, gpus, runs_per_gpu, NormalizedMuonConfig(lr_scheduler=False, muon_lr=0.02998, head_lr=0.2867, bias_lr=0.001469), experiment_config)
     run_dirs.extend(dirs)
 
+    print("Running Fixed Vanilla Muon Experiments...")
+    vanilla_muon_accs, vanilla_muon_logs, dirs = train_distributed(experiment_name, gpus, runs_per_gpu, VanillaMuonConfig(lr_scheduler=False, muon_lr=0.04749, head_lr=0.2087, bias_lr=0.007515), experiment_config)
+    run_dirs.extend(dirs)
+
     print("Running Fixed SGD Experiments...")
-    sgd_accs, sgd_logs, dirs = train_distributed(experiment_name, gpus, runs_per_gpu, SGDConfig(lr_scheduler=False, head_lr=0.01, bias_lr=0.01, filter_lr=0.01), experiment_config)
+    # sgd_accs, sgd_logs, dirs = train_distributed(experiment_name, gpus, runs_per_gpu, SGDConfig(lr_scheduler=False, head_lr=0.2410173405481256, bias_lr=0.05776, filter_lr=0.001010), experiment_config)
+    sgd_accs, sgd_logs, dirs = train_distributed(experiment_name, gpus, runs_per_gpu, SGDConfig(lr_scheduler=False, head_lr=0.01, bias_lr=0.01, filter_lr=0.001010), experiment_config)
+    run_dirs.extend(dirs)
+
+    print("Running Fixed Adam Experiments...")
+    # adam_accs, adam_logs, dirs = train_distributed(experiment_name, gpus, runs_per_gpu, AdamConfig(lr_scheduler=False, head_lr=0.3878, filter_lr=0.003732, bias_lr=0.4373, beta1=0.8022, beta2=0.9984), experiment_config)
+    adam_accs, adam_logs, dirs = train_distributed(experiment_name, gpus, runs_per_gpu, AdamConfig(lr_scheduler=False, head_lr=0.08, filter_lr=0.003732, bias_lr=0.08, beta1=0.8022, beta2=0.9984), experiment_config)
     run_dirs.extend(dirs)
 
 
@@ -235,9 +245,9 @@ def main():
     # run_dirs.extend(dirs)
 
     print_aggregated_metrics("Normalized Muon", norm_muon_accs, norm_muon_logs)
-    # print_aggregated_metrics("Vanilla Muon", vanilla_muon_accs, vanilla_muon_logs)
+    print_aggregated_metrics("Vanilla Muon", vanilla_muon_accs, vanilla_muon_logs)
     print_aggregated_metrics("SGD", sgd_accs, sgd_logs)
-    # print_aggregated_metrics("Adam", adam_accs, adam_logs)
+    print_aggregated_metrics("Adam", adam_accs, adam_logs)
 
     print(f"See https://wandb.ai/padlex/cifar10-airbench -> {experiment_name} for detailed results.")
 

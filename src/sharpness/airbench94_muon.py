@@ -624,6 +624,7 @@ def train(run, model, experiment_config, optimizer_config, epochs=8, verbose=Fal
         # Compute train accuracy from the last training batch *before* running evaluation.
         # With torch.compile + CUDAGraphs, model outputs may be backed by reusable buffers that
         # can be overwritten by subsequent model invocations (e.g., inside evaluate()).
+        # train_loss = F.cross_entropy(outputs, labels, reduction="mean", label_smoothing=0.2)
         train_acc = (outputs.detach().clone().argmax(1) == labels).float().mean().item()
 
         val_acc = evaluate(model, test_loader, tta_level=0)

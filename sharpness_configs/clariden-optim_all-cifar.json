@@ -4,7 +4,7 @@
 	"wandb_mode": "offline",
 
 	"number_gpus": 4,
-	"runs_per_gpu": 5,
+	"runs_per_gpu": 16,
 	
 	"metric_dataloader": "AirBenchCifarLoader",
 	"dataset_path": "data/cifar10",
@@ -18,5 +18,5 @@
 		"use_eval_mode": true
 	},
 
-	"epochs_per_run": 32
+	"epochs_per_run": 16
 }
