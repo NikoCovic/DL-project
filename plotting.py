@@ -395,7 +395,7 @@ class LogfileVisualizer(Logfileparser):
             ])        
         }
     
-    def plot_aggregated_comparison(self, rho, x_col, y_col, fig_size=4.0):
+    def plot_aggregated_comparison(self, rho, x_col, y_col, linear_regression=True, fig_size=4.0):
         """
         Plots a scatter plot comparing ALL optimizers for a specific rho.
         This helps visualize the cluster separation between optimizers.
@@ -424,7 +424,43 @@ class LogfileVisualizer(Logfileparser):
                 continue
             valid_data_found = True
 
-            ax.scatter(plot_data[x_col], plot_data[y_col], alpha=0.7, edgecolors='w', s=60, label=optimizer)
+            x = plot_data[x_col]
+            y = plot_data[y_col]
+
+            sc = ax.scatter(x, y, alpha=0.6, edgecolors='w', s=40, label=optimizer)
+
+            if linear_regression==True:
+                color = sc.get_facecolor()[0]
+
+                # 2. Calculate Regression and Shading
+                if len(x) > 1:
+                    # A. Fit the line
+                    m, b = np.polyfit(x, y, 1)
+                    
+                    # B. Calculate R value
+                    r_value = np.corrcoef(x, y)[0, 1]
+                    
+                    # C. Calculate Standard Deviation of the Residuals
+                    # (How far, on average, the points deviate from the line)
+                    y_pred_data = m * x + b       # Predictions for the actual data points
+                    residuals = y - y_pred_data   # The errors
+                    std_dev = np.std(residuals)   # Standard deviation of errors
+
+                    # D. Create the smooth plotting line
+                    x_line = np.linspace(min(x), max(x), 100)
+                    y_line = m * x_line + b
+                    
+                    # E. Plot the regression line
+                    ax.plot(x_line, y_line, color=color, linestyle='--', linewidth=1.5, 
+                            label=f"Fit ($R={r_value:.2f}$)")
+                            
+                    # F. Add the shaded area (1 std deviation up and down)
+                    ax.fill_between(x_line, 
+                                    y_line - std_dev,  # Lower bound
+                                    y_line + std_dev,  # Upper bound
+                                    color=color, 
+                                    alpha=0.2,        # Low opacity for shading
+                                    linewidth=0)       # No border on the shaded blob
 
         if not valid_data_found:
             print(f"No valid data to plot for {x_col} vs {y_col} at Rho={rho}")
@@ -435,7 +471,7 @@ class LogfileVisualizer(Logfileparser):
         # ax.set_title(f'Optimizer Comparison (rho={rho}): {y_col} vs {x_col}')
         ax.set_xlabel(x_col)
         ax.set_ylabel(y_col)
-        ax.legend(loc='best', frameon=True, fancybox=False, edgecolor='black', framealpha=1)
+        ax.legend(loc='upper left', bbox_to_anchor=(1.005, 1.0), frameon=True, fancybox=False, edgecolor='black', framealpha=1)
         fig.tight_layout()
 
         filename = f"plots/analyze_{self.logfile.split('/')[-1][:-4]}/rho_{rho}/AGGREGATED_{x_col}_vs_{y_col}.pdf"
@@ -459,19 +495,19 @@ if __name__ == "__main__":
         # Get summary of data
         data_summary = viz.get_viable_rho_and_optimizers()
         
-        fig_size = 4.1
+        fig_size = 5
         if data_summary:
             print("--- Generating Aggregated Plots ---")
             for rho_key in list(data_summary.keys()):
                 print(f"Processing Rho: {rho_key}")
                 
                 # Plot 1: Sharpness vs Loss Gap (The classic generalization plot)
-                viz.plot_aggregated_comparison(rho=rho_key, x_col="Sharpness", y_col="LossGap", fig_size=fig_size)
+                viz.plot_aggregated_comparison(rho=rho_key, x_col="Sharpness", y_col="LossGap", linear_regression=True, fig_size=fig_size)
                 
                 # Plot 2: Train Accuracy vs Test Accuracy (To see overfitting)
-                viz.plot_aggregated_comparison(rho=rho_key, x_col="TrainAcc", y_col="TestAcc", fig_size=fig_size)
+                viz.plot_aggregated_comparison(rho=rho_key, x_col="TrainAcc", y_col="TestAcc", linear_regression=True, fig_size=fig_size)
 
                 # Plot 3: Sharpness vs Acc Gap
-                viz.plot_aggregated_comparison(rho=rho_key, x_col="Sharpness", y_col="AccGap", fig_size=fig_size)
+                viz.plot_aggregated_comparison(rho=rho_key, x_col="Sharpness", y_col="AccGap", linear_regression=True, fig_size=fig_size)
     else:
         print(f"File not found: {logfile_path}")
