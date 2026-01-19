@@ -216,51 +216,40 @@ class Logfileparser:
         Parses the logfile into a dictionary of DataFrames keyed by rho.
         """
         current_rho = None
-        current_rho_stats = {}
-        
-        # Structure: { 'OptimizerName': {'rows': [], 'stats': {}} }
+        current_rho_stats = {}        
         temp_optimizer_data = {} 
-        
-        # Regex Patterns
+
         rho_pattern = re.compile(r"^rho=([0-9\.]+): (.+)")
         row_pattern = re.compile(r"^(\w+)\s+(run)\s+([\d\.\-\s]+)\s+(.*model\.pt)")
         opt_stat_pattern = re.compile(r"^(\w+)\s+(kendall_tau_\w+|pearson_r_\w+)\s+([-\d\.]+)")
         final_stats_start_pattern = re.compile(r"^(best_rho=|Optimizer\s+Kendall_tau\s+Pearson_r)")
 
         with open(self.logfile, 'r') as f:
-            # simple iterator to allow linear processing
             line_iter = iter(f)
             
             for line in line_iter:
                 line = line.strip()
                 if not line:
                     continue
-
-                # 1. Global Stats (End of file detection)
                 if final_stats_start_pattern.match(line):
                     self.global_stats.append(line)
-                    # Consume the rest of the file
+
                     for remaining_line in line_iter:
                         if remaining_line.strip():
                             self.global_stats.append(remaining_line.strip())
                     break 
 
-                # 2. New Rho Section
                 rho_match = rho_pattern.match(line)
                 if rho_match:
-                    # Finalize previous block
                     if current_rho is not None:
                         self._finalize_rho_block(current_rho, current_rho_stats, temp_optimizer_data)
 
-                    # Start new block
                     current_rho = float(rho_match.group(1))
                     current_rho_stats = self._parse_inline_stats(rho_match.group(2))
-                    temp_optimizer_data = {} # Reset buffer
+                    temp_optimizer_data = {}
                     continue
 
-                # 3. Data Rows & Optimizer Stats
                 if current_rho is not None:
-                    # A. Standard Table Row
                     row_match = row_pattern.match(line)
                     if row_match:
                         opt = row_match.group(1)
@@ -269,18 +258,15 @@ class Logfileparser:
                         model_path = row_match.group(4)
                         
                         metrics = [float(x) for x in metrics_str.split()]
-                        
-                        # Pad with None for Kendall/Pearson columns which are empty in 'run' rows
+
                         formatted_row = [opt, row_type, None, None] + metrics + [model_path]
-                        
-                        # Initialize dictionary structure if new optimizer
+
                         if opt not in temp_optimizer_data:
                             temp_optimizer_data[opt] = {'rows': [], 'stats': {}}
                             
                         temp_optimizer_data[opt]['rows'].append(formatted_row)
                         continue
 
-                    # B. Optimizer Specific Stats
                     stat_match = opt_stat_pattern.match(line)
                     if stat_match:
                         opt = stat_match.group(1)
@@ -293,7 +279,6 @@ class Logfileparser:
                         temp_optimizer_data[opt]['stats'][k] = v
                         continue
 
-        # Finalize the last block found in the file
         if current_rho is not None:
             self._finalize_rho_block(current_rho, current_rho_stats, temp_optimizer_data)
 
@@ -381,7 +366,6 @@ class LogfileVisualizer(Logfileparser):
             print(f"Error: No data found for Rho={rho}")
             return
 
-
         fig, ax = plt.subplots(figsize=(1.61 * fig_size, fig_size))
         
         valid_data_found = False
@@ -405,18 +389,13 @@ class LogfileVisualizer(Logfileparser):
             if linear_regression==True:
                 color = sc.get_facecolor()[0]
                 if len(x) > 1:
-                    # A. Fit the line
                     m, b = np.polyfit(x, y, 1)
-                    # B. Calculate R value
                     r_value = np.corrcoef(x, y)[0, 1]
-                    # C. Calculate Standard Deviation of the Residuals
-                    y_pred_data = m * x + b       # Predictions for the actual data points
-                    residuals = y - y_pred_data   # The errors
-                    std_dev = np.std(residuals)   # Standard deviation of errors
-                    # D. Create the smooth plotting line
+                    y_pred_data = m * x + b
+                    residuals = y - y_pred_data
+                    std_dev = np.std(residuals)
                     x_line = np.linspace(min(x), max(x), 100)
                     y_line = m * x_line + b
-                    # E. Plot the regression line
                     ax.plot(x_line, y_line, color=color, linestyle='--', linewidth=1.5, 
                             label=f"Fit ($R={r_value:.2f}$)")
 
@@ -425,7 +404,6 @@ class LogfileVisualizer(Logfileparser):
             plt.close()
             return
 
-        # 4. Styling
         # ax.set_title(f'Optimizer Comparison (rho={rho}): {y_col} vs {x_col}')
         ax.set_xlabel(x_col)
         ax.set_ylabel(y_col)
@@ -481,8 +459,7 @@ def plot_experiment_data_from_logfile(filename):
 
     if os.path.exists(logfile_path):
         viz = LogfileVisualizer(logfile_path)
-        
-        # Get summary of data
+
         data_summary = viz.get_viable_rho_and_optimizers()
         
         fig_size = 5
@@ -490,14 +467,11 @@ def plot_experiment_data_from_logfile(filename):
             print("--- Generating Aggregated Plots ---")
             for rho_key in list(data_summary.keys()):
                 print(f"Processing Rho: {rho_key}")
-                
-                # Plot 1: Sharpness vs Loss Gap (The classic generalization plot)
+
                 viz.plot_aggregated_comparison(rho=rho_key, x_col="Sharpness", y_col="LossGap", linear_regression=True, fig_size=fig_size)
                 
-                # Plot 2: Train Accuracy vs Test Accuracy (To see overfitting)
                 viz.plot_aggregated_comparison(rho=rho_key, x_col="TrainAcc", y_col="TestAcc", linear_regression=True, fig_size=fig_size)
 
-                # Plot 3: Sharpness vs Acc Gap
                 viz.plot_aggregated_comparison(rho=rho_key, x_col="Sharpness", y_col="AccGap", linear_regression=True, fig_size=fig_size)
     else:
         print(f"File not found: {logfile_path}")
@@ -506,5 +480,5 @@ def plot_experiment_data_from_logfile(filename):
 
 # --- Main Execution Block ---
 if __name__ == "__main__":
-    plot_all_eos() # CALL THIS TO PLOT ALL OF EOS GRAPHS
+    plot_all_eos()
 
