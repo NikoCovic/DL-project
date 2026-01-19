@@ -1,0 +1,16 @@
+{
+  "checkpoint_dir": "checkpoints/0de94391",
+  "dataset_path": "data/cifar10",
+  "split": "train",
+  "batch_size": 3000,
+  "subset_batches": 5,
+
+  "device": "cuda",
+  "output_path": "results/adaptive_sharpness_sweep_results.grid.csv",
+  "parameters": {
+    "rho": [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0],
+    "eta": 0.01,
+    "ascent_steps": 8,
+    "use_eval_mode": true
+  }
+}

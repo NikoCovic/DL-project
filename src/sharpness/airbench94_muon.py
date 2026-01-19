@@ -120,12 +120,13 @@ class NormalizedMuon(torch.optim.Optimizer):
 
 class OptimizerConfig:
     """Base class for optimizer configurations"""
-    def __init__(self, name, batch_size=2000, bias_lr=0.053, head_lr=0.67, wd_factor=2e-6):
+    def __init__(self, name, batch_size=2000, bias_lr=0.053, head_lr=0.67, wd_factor=2e-6, lr_scheduler=True):
         self.name = name
         self.batch_size = batch_size
         self.bias_lr = bias_lr
         self.head_lr = head_lr
         self.wd = wd_factor * batch_size
+        self.lr_scheduler = lr_scheduler
     
     def create_optimizers(self, model):
         """Create and return optimizer(s) for the model. Must be implemented by subclasses."""
@@ -139,13 +140,14 @@ class OptimizerConfig:
             "bias_lr": self.bias_lr,
             "head_lr": self.head_lr,
             "wd_factor": self.wd / self.batch_size,
+            "lr_scheduler": self.lr_scheduler,
         }
 
 class NormalizedMuonConfig(OptimizerConfig):
     def __init__(self, batch_size=2000, bias_lr=0.053, head_lr=0.67, wd_factor=2e-6,
                  muon_lr=0.24, muon_momentum=0.6, muon_nesterov=True,
-                 sgd_momentum=0.85, sgd_nesterov=True):
-        super().__init__('NormalizedMuon', batch_size, bias_lr, head_lr, wd_factor)
+                 sgd_momentum=0.85, sgd_nesterov=True, lr_scheduler=True):
+        super().__init__('NormalizedMuon', batch_size, bias_lr, head_lr, wd_factor, lr_scheduler)
         self.muon_lr = muon_lr
         self.muon_momentum = muon_momentum
         self.muon_nesterov = muon_nesterov
@@ -183,8 +185,8 @@ class NormalizedMuonConfig(OptimizerConfig):
 class VanillaMuonConfig(OptimizerConfig):
     def __init__(self, batch_size=2000, bias_lr=0.08873, head_lr=0.8226, wd_factor=7.553e-7,
                  muon_lr=0.24, muon_momentum=0.6, muon_nesterov=True,
-                 sgd_momentum=0.85, sgd_nesterov=True):
-        super().__init__('VanillaMuon', batch_size, bias_lr, head_lr, wd_factor)
+                 sgd_momentum=0.85, sgd_nesterov=True, lr_scheduler=True):
+        super().__init__('VanillaMuon', batch_size, bias_lr, head_lr, wd_factor, lr_scheduler)
         self.muon_lr = muon_lr
         self.muon_momentum = muon_momentum
         self.muon_nesterov = muon_nesterov
@@ -220,8 +222,8 @@ class VanillaMuonConfig(OptimizerConfig):
         return base_repr
 
 class SGDConfig(OptimizerConfig):
-    def __init__(self, batch_size=2000, filter_lr=0.4756, head_lr=0.8182, bias_lr=0.01141, momentum=0.9187, wd_factor=1e-6, nesterov=True):
-        super().__init__('SGD', batch_size, bias_lr, head_lr, wd_factor)
+    def __init__(self, batch_size=2000, filter_lr=0.4756, head_lr=0.8182, bias_lr=0.01141, momentum=0.9187, wd_factor=1e-6, nesterov=True, lr_scheduler=True):
+        super().__init__('SGD', batch_size, bias_lr, head_lr, wd_factor, lr_scheduler)
         self.filter_lr = filter_lr
         self.momentum = momentum
         self.nesterov = nesterov
@@ -252,8 +254,8 @@ class SGDConfig(OptimizerConfig):
         return base_repr
 
 class AdamConfig(OptimizerConfig):
-    def __init__(self, batch_size=2000, filter_lr=0.004696, head_lr=0.8013, bias_lr=0.09306, beta1=0.8244, beta2=0.9956, wd_factor=2e-6, eps=1e-8):
-        super().__init__('Adam', batch_size, bias_lr, head_lr, wd_factor)
+    def __init__(self, batch_size=2000, filter_lr=0.004696, head_lr=0.8013, bias_lr=0.09306, beta1=0.8244, beta2=0.9956, wd_factor=2e-6, eps=1e-8, lr_scheduler=True):
+        super().__init__('Adam', batch_size, bias_lr, head_lr, wd_factor, lr_scheduler)
         self.filter_lr = filter_lr
         self.betas = (beta1, beta2)
         self.eps = eps
@@ -597,14 +599,15 @@ def train(run, model, experiment_config, optimizer_config, epochs=8, verbose=Fal
             F.cross_entropy(outputs, labels, label_smoothing=0.2, reduction="sum").backward()
             
             # Update learning rates
-            for opt in optimizers:
-                for i, group in enumerate(opt.param_groups):
-                    # Check if this is the whiten bias group (first group in first optimizer)
-                    is_whiten_bias = (opt == optimizers[0] and i == 0)
-                    if is_whiten_bias:
-                        group["lr"] = group["initial_lr"] * (1 - step / whiten_bias_train_steps)
-                    else:
-                        group["lr"] = group["initial_lr"] * (1 - step / total_train_steps)
+            if optimizer_config.lr_scheduler:
+                for opt in optimizers:
+                    for i, group in enumerate(opt.param_groups):
+                        # Check if this is the whiten bias group (first group in first optimizer)
+                        is_whiten_bias = (opt == optimizers[0] and i == 0)
+                        if is_whiten_bias:
+                            group["lr"] = group["initial_lr"] * (1 - step / whiten_bias_train_steps)
+                        else:
+                            group["lr"] = group["initial_lr"] * (1 - step / total_train_steps)
             
             for opt in optimizers:
                 opt.step()
@@ -621,6 +624,7 @@ def train(run, model, experiment_config, optimizer_config, epochs=8, verbose=Fal
         # Compute train accuracy from the last training batch *before* running evaluation.
         # With torch.compile + CUDAGraphs, model outputs may be backed by reusable buffers that
         # can be overwritten by subsequent model invocations (e.g., inside evaluate()).
+        # train_loss = F.cross_entropy(outputs, labels, reduction="mean", label_smoothing=0.2)
         train_acc = (outputs.detach().clone().argmax(1) == labels).float().mean().item()
 
         val_acc = evaluate(model, test_loader, tta_level=0)
@@ -661,15 +665,17 @@ if __name__ == "__main__":
     experiment_config = ExperimentConfig()
 
     # 1. Warmup
-    print("Performing Warmup...")
-    train("Warmup", model, experiment_config)
+    # print("Performing Warmup...")
+    # train("warmup", model, experiment_config, NormalizedMuonConfig(), epochs=1, verbose=False)
 
-    epocs = 8
-    runs = 50
+
+    epocs = 32
+    runs = 1
 
     # 2. Test Muon
-    train_and_print(model, experiment_config, NormalizedMuonConfig(), "NormalizedMuon", epochs=epocs, runs=runs)
-    train_and_print(model, experiment_config, VanillaMuonConfig(), "VanillaMuon", epochs=epocs, runs=runs)
+    # train_and_print(model, experiment_config, NormalizedMuonConfig(), "NormalizedMuon", epochs=epocs, runs=runs, verbose=True)
+    train_and_print(model, experiment_config, NormalizedMuonConfig(lr_scheduler=False, muon_lr=0.05, head_lr=0.05, bias_lr=0.05), "0.05FixedNormalizedMuon", epochs=epocs, runs=runs, verbose=True)
+    # train_and_print(model, experiment_config, VanillaMuonConfig(), "VanillaMuon", epochs=epocs, runs=runs)
 
     # tuned_muon_config_8 = MuonConfig(muon_lr=0.2574, head_lr=0.7136, muon_momentum=0.6576, bias_lr=0.0853, sgd_momentum=0.8802)
     # train_and_print(model, experiment_config, tuned_muon_config_8, "Tuned Muon 8", epochs=epocs, runs=runs)
@@ -678,7 +684,8 @@ if __name__ == "__main__":
     # train_and_print(model, experiment_config, tuned_muon_config_16, "Tuned Muon 16", epochs=epocs, runs=runs)
 
     # 3. Test SGD
-    # train_and_print(model, experiment_config, SGDConfig(), "SGD", epochs=epocs, runs=runs)
+    train_and_print(model, experiment_config, SGDConfig(), "SGD", epochs=epocs, runs=runs)
+    train_and_print(model, experiment_config, SGDConfig(lr_scheduler=False, head_lr=0.01, bias_lr=0.01, filter_lr=0.01), "0.01FixedSGD", epochs=epocs, runs=runs, verbose=True)
 
     # tuned_sgd_config_8 = SGDConfig(filter_lr=0.4756, head_lr=0.8182, bias_lr=0.01141, momentum=0.9187)
     # train_and_print(model, experiment_config, tuned_sgd_config_8, "Tuned SGD 8", epochs=epocs, runs=runs)
