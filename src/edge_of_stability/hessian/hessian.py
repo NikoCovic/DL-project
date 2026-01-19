@@ -20,58 +20,6 @@ class Hessian:
     def update_params(self):
         self.params = [nn.Parameter(p.detach().clone(), requires_grad=True).to(p.device) for p in self.model.parameters() if p.requires_grad]
 
-    def commutativity_measure(self, preconditioner:Preconditioner, **algo_kwargs):
-        # Store the current parameters
-        model_params = self._set_model_params(self.params)
-
-        # Compute loss
-        loss = self.loss_fn(self.model(self.inputs.to(self.device)), self.targets.to(self.device))
-        # Compute the gradients w.r.t. the loss
-        params = [p for p in self.model.parameters() if p.requires_grad]
-        grad = torch.autograd.grad(loss, params, create_graph=True)
-
-        def mv(v):
-            # Compute PHv - HPv
-            Hv = self.hessian_vector_product(v, grad, params, inplace=False)
-            PHv = preconditioner.dot(Hv, inplace=True)
-
-            Pv = preconditioner.dot(v, inplace=True)
-            HPv = self.hessian_vector_product(Pv, grad, params, inplace=True)
-
-            return params_sum(PHv, HPv, alpha=-1)
-        
-        def mv_transformed(v):
-            # Compute (PH - HP)^Tv = HPv - PHv
-            Hv = self.hessian_vector_product(v, grad, params, inplace=False)
-            PHv = preconditioner.dot(Hv, inplace=True)
-
-            Pv = preconditioner.dot(v, inplace=True)
-            HPv = self.hessian_vector_product(Pv, grad, params, inplace=True)
-
-            return params_sum(HPv, PHv, alpha=-1)
-        
-        operator = TorchLinearOperator(mv, params)
-        operator_transformed = TorchLinearOperator(mv_transformed, params)
-
-        s = spectral_norm(operator, operator_transformed, **algo_kwargs)
-
-        self._set_model_params(model_params)
-
-        return s
-    
-    def alignment(self, v:Iterable[Parameter], preconditioner:Preconditioner=None, **algo_kwargs):
-        model_params = self._set_model_params(self.params)
-
-        Pv = preconditioner.dot(v, inplace=False)
-        eigenvectors, _ = self.eigenvalues(preconditioner=preconditioner, **algo_kwargs)
-        eigenvector = eigenvectors[0]
-
-        cosine_similarity = params_dot_product(eigenvector, Pv) / (params_norm(eigenvector) * params_norm(Pv))
-
-        self._set_model_params(model_params)
-
-        return cosine_similarity.abs().cpu().item()
-
     def eigenvalues(self, preconditioner:Preconditioner=None, **algo_kwargs):
         # Set the model parameters to the current parameters
         # Store the current parameters
@@ -104,26 +52,6 @@ class Hessian:
 
         return eigenvectors, eigenvalues
     
-    def rayleigh_quotient(self, v:Iterable[Parameter], preconditioner:Preconditioner=None):
-        model_params = self._set_model_params(self.params)
-
-        # Compute loss
-        loss = self.loss_fn(self.model(self.inputs.to(self.device)), self.targets.to(self.device))
-        # Fetch the parameters which require a gradient
-        params = [p for p in self.model.parameters() if p.requires_grad]
-        # Compute the gradient
-        grad = torch.autograd.grad(loss, params, create_graph=True)
-
-        Pm = params_normalize(preconditioner.dot(v, inplace=False), inplace=True) if preconditioner is not None else params_normalize(v, inplace=False)
-
-        HPm = self.hessian_vector_product(Pm, grad, params, inplace=False)
-        PHPm = HPm if preconditioner is None else preconditioner.dot(HPm, inplace=False)
-        q = params_dot_product(Pm, PHPm)
-
-        self._set_model_params(model_params)
-
-        return q.cpu().item()
-    
     def spectral_norm(self, preconditioner:Preconditioner=None, **algo_kwargs):
         # Set the parameters to the current Hessian parameters
         model_params = self._set_model_params(self.params)
@@ -133,24 +61,17 @@ class Hessian:
         loss = self.loss_fn(self.model(self.inputs.to(self.device)), self.targets.to(self.device))
         grad = torch.autograd.grad(loss, params, create_graph=True)
 
-        if preconditioner is not None:
-            preconditioner_sqrt = preconditioner.pow(0.5)
-
         # Construct the operators
-        # Regular operator is P^{1/2}HP^{1/2}v
+        # Regular operator is PHv
         def mv(v:Iterable[Parameter]):
             if preconditioner is not None:
-                v = preconditioner.dot(v, inplace=True)#preconditioner_sqrt.dot(v, inplace=True)
+                v = preconditioner.dot(v, inplace=True)
             v = self.hessian_vector_product(v, grad, params, inplace=True)
-            #if preconditioner is not None:
-            #    v = preconditioner_sqrt.dot(v, inplace=True)
             return v
         operator = TorchLinearOperator(mv=mv, params=params)
 
-        # Transposed operator is (P^{1/2}HP^{1/2})^Tv = P^{1/2}HP^{1/2}v
+        # Transposed operator is HPv
         def mv_transposed(v:Iterable[Parameter]):
-            #if preconditioner is not None:
-            #    v = preconditioner_sqrt.dot(v, inplace=True)
             v = self.hessian_vector_product(v, grad, params, inplace=True)
             if preconditioner is not None:
                 v = preconditioner.dot(v, inplace=True)

@@ -25,8 +25,8 @@ class AdamConfig:
 
 @dataclass
 class MLPConfig:
-    width:int = 64
-    n_hidden:int = 2
+    width:int = 200
+    n_hidden:int = 5
     activation:str = "tanh"
     bias:bool = True
 

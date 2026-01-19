@@ -7,9 +7,7 @@ import matplotlib.pyplot as plt
 from matplotlib import cycler
 from cycler import cycler
 
-
-
-
+# Visualizing a collection of generated experiments for EoS
 class EOSVisualizer():
     """ Given a dict of experiments create plots.
         keys: optimizer name
@@ -52,7 +50,7 @@ class EOSVisualizer():
             ax.set_ylabel(r'training loss')
             ax.set_yscale(yscale)
             ax.legend(loc='upper right', frameon=True, fancybox=False, edgecolor='black', framealpha=1)
-            # ax.set_title(f"{optim_name.capitalize()} {model_size.capitalize()} Training Loss")
+            #ax.set_title(f"{optim_name.capitalize()} {model_size.capitalize()} Training Loss")
             plt.tight_layout()
             filename = f"plots/eos/{model_size}/train_loss_history/train_loss_history_{optim_name}_{model_size}_{yscale}.pdf"
             directory = os.path.dirname(filename)
@@ -79,7 +77,7 @@ class EOSVisualizer():
             ax.set_xlabel(r'epochs')
             ax.set_ylabel(r'$\lambda_{max}(H_t)$')
             ax.legend(loc='best', frameon=True, fancybox=False, edgecolor='black', framealpha=1)
-            # ax.set_title(f"Sharpness {optim_name.capitalize()} {model_size.capitalize()}")
+            #ax.set_title(f"Sharpness {optim_name.capitalize()} {model_size.capitalize()}")
             plt.tight_layout()
             filename = f"plots/eos/{model_size}/sharpness/sharpness_{optim_name}_{model_size}.pdf"
             directory = os.path.dirname(filename)
@@ -111,7 +109,7 @@ class EOSVisualizer():
             if optim_name == "muon":
                 ax.set_ylim(bottom=min(eff_sharp_dict['measurements'][:200]) - 3000, top=None)
             ax.legend(loc='best', frameon=True, fancybox=False, edgecolor='black', framealpha=1)
-            # ax.set_title(f"Effective Sharpness {optim_name.capitalize()} {model_size.capitalize()}")
+            #ax.set_title(f"Effective Sharpness {optim_name.capitalize()} {model_size.capitalize()}")
             plt.tight_layout()
             filename = f"plots/eos/{model_size}/eff_sharpness/eff_sharpness_{optim_name}_{model_size}.pdf"
             directory = os.path.dirname(filename)
@@ -183,7 +181,7 @@ class EOSVisualizer():
             else:
                 ax_eff_sharp.set_ylim(bottom=min(0, -0.10 * (min(es_dict['measurements']) - abs(min(es_dict['measurements'][:200])))))
             
-            # ax_loss.set_title(f"{optim_name.capitalize()} {model_size.capitalize()} Training Dynamics", pad=15)
+            #ax_loss.set_title(f"{optim_name.capitalize()} {model_size.capitalize()} Training Dynamics", pad=15)
 
             ax_loss.legend(handles, labels, loc='best', frameon=True, fancybox=False, edgecolor='black')
             plt.tight_layout()
@@ -196,37 +194,11 @@ class EOSVisualizer():
             print(f"Combined figure saved: {filename}")
 # end of EOSVisualizer
 
-# Global Methods: 
-def plot_all_eos():
-    big_exp_dict = {}
-    small_exp_dict = {}
-    for exp in os.listdir('experiments'):
-        if exp.endswith("small"):
-            size = "small"
-            base = exp[:-5]
-        else:
-            size = "big"
-            base = exp[:-3]        
-        optimizer_name = ''.join(c for c in base if c.isalpha())
-        target = small_exp_dict if size == "small" else big_exp_dict
-        target.setdefault(optimizer_name, []).append(exp)
 
-    print("\nExperiment dict 'big': ", big_exp_dict)
-    print("\nExperiment dict 'small': ", small_exp_dict)
 
-    print("\nCreating plots...")
-    fig_size = 4.1
-    for model_size in ['big', 'small']:
-        exp_dict = big_exp_dict if model_size == 'big' else small_exp_dict
-        eos_visualizer = EOSVisualizer(exp_dict)
-        eos_visualizer.plot_train_loss(optim_names=list(exp_dict.keys()), model_size=model_size, yscale='linear', fig_size=fig_size)
-        eos_visualizer.plot_train_loss(optim_names=list(exp_dict.keys()), model_size=model_size, yscale='log', fig_size=fig_size)
-        eos_visualizer.plot_sharpness(optim_names=list(exp_dict.keys()), model_size=model_size, fig_size=fig_size)
-        eos_visualizer.plot_eff_sharpness(optim_names=list(exp_dict.keys()), model_size=model_size, fig_size=fig_size)
-        eos_visualizer.plot_combined_metrics(optim_names=list(exp_dict.keys()), model_size=model_size, fig_size=3.9)
-    print("\nPlots complete.\n")
-
+# Looking Inspect and plot experiments on Sharpness (provided a single logfile)
 class Logfileparser:
+    """Loads generated logfile into a collection of dataframes."""
     def __init__(self, logfile):
         self.logfile = logfile
         self.parsed_data = {}
@@ -372,6 +344,7 @@ class Logfileparser:
 
 
 class LogfileVisualizer(Logfileparser):
+    """Visualization of the parsed logfile."""
     def __init__(self, logfile):
         super().__init__(logfile)
 
@@ -388,7 +361,7 @@ class LogfileVisualizer(Logfileparser):
             "xtick.major.size": 6,
             "ytick.major.size": 6,
             "figure.dpi": 300,
-            # Custom color cycle for distinct optimizer colors
+
             "axes.prop_cycle": cycler(color=[
                 '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
                 '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'
@@ -431,36 +404,21 @@ class LogfileVisualizer(Logfileparser):
 
             if linear_regression==True:
                 color = sc.get_facecolor()[0]
-
-                # 2. Calculate Regression and Shading
                 if len(x) > 1:
                     # A. Fit the line
                     m, b = np.polyfit(x, y, 1)
-                    
                     # B. Calculate R value
                     r_value = np.corrcoef(x, y)[0, 1]
-                    
                     # C. Calculate Standard Deviation of the Residuals
-                    # (How far, on average, the points deviate from the line)
                     y_pred_data = m * x + b       # Predictions for the actual data points
                     residuals = y - y_pred_data   # The errors
                     std_dev = np.std(residuals)   # Standard deviation of errors
-
                     # D. Create the smooth plotting line
                     x_line = np.linspace(min(x), max(x), 100)
                     y_line = m * x_line + b
-                    
                     # E. Plot the regression line
                     ax.plot(x_line, y_line, color=color, linestyle='--', linewidth=1.5, 
                             label=f"Fit ($R={r_value:.2f}$)")
-                            
-                    # F. Add the shaded area (1 std deviation up and down)
-                    ax.fill_between(x_line, 
-                                    y_line - std_dev,  # Lower bound
-                                    y_line + std_dev,  # Upper bound
-                                    color=color, 
-                                    alpha=0.2,        # Low opacity for shading
-                                    linewidth=0)       # No border on the shaded blob
 
         if not valid_data_found:
             print(f"No valid data to plot for {x_col} vs {y_col} at Rho={rho}")
@@ -479,14 +437,46 @@ class LogfileVisualizer(Logfileparser):
         fig.savefig(filename, format='pdf', bbox_inches='tight')
         plt.close(fig)
         print(f"Aggregated Figure saved in: {filename}")
+# End of LogfileVisualizer
+
+# -------------------------------------------End of class definitions------------------------------------------------------
 
 
-# --- Main Execution Block ---
-if __name__ == "__main__":
-    plot_all_eos() # CALL THIS TO PLOT ALL OF EOS GRAPHS
-    # PLOTTING LOGFILE GRAPHS
-    # Ensure correct file path
-    filename = '1390543.log'
+
+# ---------------------------------------------Global Methods --------------------------------------------------------------
+def plot_all_eos():
+    big_exp_dict = {}
+    small_exp_dict = {}
+    for exp in os.listdir('experiments'):
+        if exp.endswith("small"):
+            size = "small"
+            base = exp[:-5]
+        elif exp.endswith("big"):
+            size = "big"
+            base = exp[:-3]        
+        else:
+            continue
+        optimizer_name = ''.join(c for c in base if c.isalpha())
+        target = small_exp_dict if size == "small" else big_exp_dict
+        target.setdefault(optimizer_name, []).append(exp)
+
+    print("\nExperiment dict 'big': ", big_exp_dict)
+    print("\nExperiment dict 'small': ", small_exp_dict)
+
+    print("\nCreating plots...")
+    fig_size = 3.35
+    for model_size in ['big', 'small']:
+        exp_dict = big_exp_dict if model_size == 'big' else small_exp_dict
+        eos_visualizer = EOSVisualizer(exp_dict)
+        eos_visualizer.plot_train_loss(optim_names=list(exp_dict.keys()), model_size=model_size, yscale='linear', fig_size=fig_size)
+        eos_visualizer.plot_train_loss(optim_names=list(exp_dict.keys()), model_size=model_size, yscale='log', fig_size=fig_size)
+        eos_visualizer.plot_sharpness(optim_names=list(exp_dict.keys()), model_size=model_size, fig_size=fig_size)
+        eos_visualizer.plot_eff_sharpness(optim_names=list(exp_dict.keys()), model_size=model_size, fig_size=fig_size)
+        eos_visualizer.plot_combined_metrics(optim_names=list(exp_dict.keys()), model_size=model_size, fig_size=3.9)
+    print("\nPlots complete.\n")
+
+def plot_experiment_data_from_logfile(filename):
+
     logfile_path = os.path.join(os.getcwd(), filename)
 
     if os.path.exists(logfile_path):
@@ -511,3 +501,10 @@ if __name__ == "__main__":
                 viz.plot_aggregated_comparison(rho=rho_key, x_col="Sharpness", y_col="AccGap", linear_regression=True, fig_size=fig_size)
     else:
         print(f"File not found: {logfile_path}")
+
+
+
+# --- Main Execution Block ---
+if __name__ == "__main__":
+    plot_all_eos() # CALL THIS TO PLOT ALL OF EOS GRAPHS
+
