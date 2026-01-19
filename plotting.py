@@ -454,13 +454,13 @@ class LogfileVisualizer(Logfileparser):
                     ax.plot(x_line, y_line, color=color, linestyle='--', linewidth=1.5, 
                             label=f"Fit ($R={r_value:.2f}$)")
                             
-                    # F. Add the shaded area (1 std deviation up and down)
-                    ax.fill_between(x_line, 
-                                    y_line - std_dev,  # Lower bound
-                                    y_line + std_dev,  # Upper bound
-                                    color=color, 
-                                    alpha=0.2,        # Low opacity for shading
-                                    linewidth=0)       # No border on the shaded blob
+                    # # F. Add the shaded area (1 std deviation up and down)
+                    # ax.fill_between(x_line, 
+                    #                 y_line - std_dev,  # Lower bound
+                    #                 y_line + std_dev,  # Upper bound
+                    #                 color=color, 
+                    #                 alpha=0.2,        # Low opacity for shading
+                    #                 linewidth=0)       # No border on the shaded blob
 
         if not valid_data_found:
             print(f"No valid data to plot for {x_col} vs {y_col} at Rho={rho}")
