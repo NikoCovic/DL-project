@@ -4,6 +4,15 @@ To run the Flat Minima Hypothesis experiment (based on the airbench benchmark), 
 python sharpness_experiment.py --config sharpness_configs/adaptive_sharpness_sweep.json
 ```
 
+To reproduce our hyperparameter sweep run:
+```
+python sharpness_sweep.py
+```
+
+Our plots and table are defined in:
+```
+python sharpness_plots.py
+```
 # 2. Edge of Stability
 
 To run the edge of stability experiment, run the eos_experiment.py script with the wanted parameters
