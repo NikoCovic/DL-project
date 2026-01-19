@@ -1,13 +1,18 @@
-Start optima experiment sbatch: `sbatch slurm/optima_experiment.sbatch`
-
-Start student cluster interactive session: `srun --account=deep_learning --pty bash`
-Start optima experiment: `uv run optima/main.py --config optima/configs/student-optim_all-cifar.json`
 # 1. Flat Minima Hypothesis
 To run the Flat Minima Hypothesis experiment (based on the airbench benchmark), run sharpness_experiment.py with an appropriate config. For example:
 ```
 python sharpness_experiment.py --config sharpness_configs/adaptive_sharpness_sweep.json
 ```
 
+To reproduce our hyperparameter sweep run:
+```
+python sharpness_sweep.py
+```
+
+Our plots and table are defined in:
+```
+python sharpness_plots.py
+```
 # 2. Edge of Stability
 
 To run the edge of stability experiment, run the eos_experiment.py script with the wanted parameters

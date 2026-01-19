@@ -5,7 +5,7 @@ from torch.nn.parameter import Parameter
 import torch
 from typing import Iterable
 
-
+# none of my comments are ai :)
 class Hessian:
     def __init__(self, model:nn.Module, data, loss_fn, device:str="cpu"):
         self.model = model
