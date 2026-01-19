@@ -50,7 +50,7 @@ class EOSVisualizer():
             ax.set_ylabel(r'Training loss')
             ax.set_yscale(yscale)
             ax.legend(loc='upper right', frameon=True, fancybox=False, edgecolor='black', framealpha=1)
-            ax.set_title(f"{optim_name.capitalize()} {model_size.capitalize()} Training Loss")
+            #ax.set_title(f"{optim_name.capitalize()} {model_size.capitalize()} Training Loss")
             plt.tight_layout()
             filename = f"plots/{model_size}/train_loss_history/train_loss_history_{optim_name}_{model_size}_{yscale}.pdf"
             directory = os.path.dirname(filename)
@@ -78,7 +78,7 @@ class EOSVisualizer():
             ax.set_xlabel(r'Epochs')
             ax.set_ylabel(r'Sharpness')
             ax.legend(loc='best', frameon=True, fancybox=False, edgecolor='black', framealpha=1)
-            ax.set_title(f"Sharpness {optim_name.capitalize()} {model_size.capitalize()}")
+            #ax.set_title(f"Sharpness {optim_name.capitalize()} {model_size.capitalize()}")
             plt.tight_layout()
             filename = f"plots/{model_size}/sharpness/sharpness_{optim_name}_{model_size}.pdf"
             directory = os.path.dirname(filename)
@@ -110,7 +110,7 @@ class EOSVisualizer():
             if optim_name == "muon":
                 ax.set_ylim(bottom=min(eff_sharp_dict['measurements'][:200]) - 3000, top=None)
             ax.legend(loc='best', frameon=True, fancybox=False, edgecolor='black', framealpha=1)
-            ax.set_title(f"Effective Sharpness {optim_name.capitalize()} {model_size.capitalize()}")
+            #ax.set_title(f"Effective Sharpness {optim_name.capitalize()} {model_size.capitalize()}")
             plt.tight_layout()
             filename = f"plots/{model_size}/eff_sharpness/eff_sharpness_{optim_name}_{model_size}.pdf"
             directory = os.path.dirname(filename)
@@ -183,7 +183,7 @@ class EOSVisualizer():
             else:
                 ax_eff_sharp.set_ylim(bottom=min(0, -0.10 * (min(es_dict['measurements']) - abs(min(es_dict['measurements'][:200])))))
             
-            ax_loss.set_title(f"{optim_name.capitalize()} {model_size.capitalize()} Training Dynamics", pad=15)
+            #ax_loss.set_title(f"{optim_name.capitalize()} {model_size.capitalize()} Training Dynamics", pad=15)
 
             ax_loss.legend(handles, labels, loc='best', frameon=True, fancybox=False, edgecolor='black')
             plt.tight_layout()
@@ -203,9 +203,11 @@ if __name__ == "__main__":
         if exp.endswith("small"):
             size = "small"
             base = exp[:-5]
-        else:
+        elif exp.endswith("big"):
             size = "big"
             base = exp[:-3]        
+        else:
+            continue
         optimizer_name = ''.join(c for c in base if c.isalpha())
         target = small_exp_dict if size == "small" else big_exp_dict
         target.setdefault(optimizer_name, []).append(exp)
