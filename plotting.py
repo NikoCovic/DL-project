@@ -464,7 +464,7 @@ def plot_all_eos():
     print("\nExperiment dict 'small': ", small_exp_dict)
 
     print("\nCreating plots...")
-    fig_size = 4.1
+    fig_size = 3.35
     for model_size in ['big', 'small']:
         exp_dict = big_exp_dict if model_size == 'big' else small_exp_dict
         eos_visualizer = EOSVisualizer(exp_dict)
@@ -475,7 +475,7 @@ def plot_all_eos():
         eos_visualizer.plot_combined_metrics(optim_names=list(exp_dict.keys()), model_size=model_size, fig_size=3.9)
     print("\nPlots complete.\n")
 
-def plot_experiment_data_from_logfile(filename)
+def plot_experiment_data_from_logfile(filename):
 
     logfile_path = os.path.join(os.getcwd(), filename)
 
