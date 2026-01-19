@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=sweep
 #SBATCH --account=infra01
-#SBATCH --time=00:20:00
+#SBATCH --time=00:50:00
 #SBATCH --nodes=1                
 #SBATCH --ntasks-per-node=1      
 #SBATCH --gpus-per-task=4
