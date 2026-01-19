@@ -126,7 +126,7 @@ def train_and_log(
             raise ValueError("checkpoint_dir is None but checkpointing is enabled")
         ckpt_base = Path(experiment_config.checkpoint_dir) / str(experiment_config.experiment_id)
         gpu_id = torch.cuda.current_device()
-        ckpt_run_dir = ckpt_base / f"{optimizer_config.name}-{int(run_number)}-{gpu_id}"
+        ckpt_run_dir = ckpt_base / f"{optimizer_config.name}-{int(run_number)}"
         ckpt_run_dir.mkdir(parents=True, exist_ok=True)
 
         # Model weights (CPU state_dict for portability)
@@ -169,7 +169,7 @@ def worker(
 
     for run in tqdm(range(runs_per_gpu)) if gpu_id == 0 else range(runs_per_gpu):
         # 1-indexed run number (matches "(1-5 currently)" naming)
-        run_number = int(run) + 1
+        run_number = int(run) + 1 + gpu_id * runs_per_gpu
         acc, logs, run_dirs = train_and_log(
             experiment_name,
             model,

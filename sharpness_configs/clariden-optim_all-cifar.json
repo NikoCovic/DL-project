@@ -9,7 +9,7 @@
 	"metric_dataloader": "AirBenchCifarLoader",
 	"dataset_path": "data/cifar10",
 	"metric_batch_size": 1024,
-	"metrics": ["pyhessian_sharpness", "adaptive_sharpness", "sam_sharpness"],
+	"metrics": [],
 	"adaptive_sharpness": {
 		"rho": 0.05,
 		"eta": 0.01,

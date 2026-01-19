@@ -1,9 +1,9 @@
 {
-  "checkpoint_dir": "checkpoints/0de94391",
+  "checkpoint_dir": "checkpoints/8816a7aa",
   "dataset_path": "data/cifar10",
   "split": "train",
-  "batch_size": 3000,
-  "subset_batches": 5,
+  "batch_size": 1024,
+  "subset_batches": 1,
 
   "device": "cuda",
   "output_path": "results/adaptive_sharpness_sweep_results.grid.csv",
