@@ -1,0 +1,8 @@
+pytorch
+pyhessian
+wandb
+seaborn
+matplotlib
+pandas
+numpy
+scipy
