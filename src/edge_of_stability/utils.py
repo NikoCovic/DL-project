@@ -1,7 +1,7 @@
 import torch
 from typing import Iterable
 from torch.nn.parameter import Parameter
-from torch.optim import Optimizer, Adam, RMSprop, Muon, SGD
+from torch.optim import Optimizer, Adam, RMSprop, SGD
 from src.sharpness.airbench94_muon import VanillaMuon
     
 
@@ -131,6 +131,7 @@ def spectral_norm(operator:TorchLinearOperator, operator_transposed:TorchLinearO
 
     return s
 
+
 def params_flatten(params:Iterable[Parameter]):
     v = None
     for p in params:
@@ -167,44 +168,4 @@ def fetch_threshold(optim:Optimizer, metric:str="eff_sharpness"):
         elif isinstance(optim, RMSprop):
             lr = optim.param_groups[0]["lr"]
             return 2/lr
-
-        
-class ParameterBasis():
-    def __init__(self, M:torch.tensor):
-        self.M = M
-
-    def from_params(params:Iterable[Iterable[Parameter]]) -> "ParameterBasis":
-        n = 0
-        for p in params[0]:
-            n += p.numel()
-        M = None
-        for p in params:
-            v = params_flatten(p)[0].reshape((-1,1))
-            M = torch.cat((M, v), dim=1) if M is not None else v
-        return ParameterBasis(M)
-
-    def dot(self, v:Iterable[Parameter], out_shape=None, inplace:bool=False):
-        v = v if inplace else params_copy(v)
-        v = params_flatten(v)[0].reshape((-1,1))
-        Mv = [Parameter(self.M @ v.to(self.M.device))]
-        if out_shape is not None:
-            Mv = params_flat_reshape(Mv, params_random(out_shape, device=v.device))
-        return Mv
-    
-    def transpose(self, inplace:bool=False):
-        if inplace:
-            self.M = self.M.T
-            return self
-        else:
-            return ParameterBasis(self.M.T)
-    
-    def orthonormalize(self, inplace:bool=False):
-        #print(self.M)
-        Q, _ = torch.linalg.qr(self.M)
-        #M = U @ Vh
-        if inplace:
-            self.M = Q
-            return self
-        else:
-            return ParameterBasis(Q)
 
