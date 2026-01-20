@@ -1,7 +1,7 @@
 # 1. Flat Minima Hypothesis
 To run the Flat Minima Hypothesis experiment (based on the airbench benchmark), run sharpness_experiment.py with an appropriate config. For example:
 ```
-python sharpness_experiment.py --config sharpness_configs/adaptive_sharpness_sweep.json
+python sharpness_experiment.py --config sharpness_config_multiple_gpus.json
 ```
 
 To reproduce our hyperparameter sweep run:
